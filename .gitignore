@@ -1,0 +1,6 @@
+node_modules
+dist
+# File asset asli berukuran besar (sumber sebelum dioptimasi); yang dipakai aplikasi ada di public/
+assets-source
+.DS_Store
+*.log

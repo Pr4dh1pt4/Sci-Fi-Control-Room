@@ -1,0 +1,613 @@
+:root {
+  --hud-cyan: #2ee6ff;
+  --hud-cyan-dim: rgba(46, 230, 255, 0.35);
+  --hud-red: #ff4252;
+  --hud-amber: #ffb02e;
+  --hud-green: #3dff9a;
+  --hud-bg: rgba(4, 12, 20, 0.78);
+  --hud-text: #cfefff;
+  --hud-font: Consolas, 'Courier New', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #04070b;
+  color: var(--hud-text);
+  font-family: var(--hud-font);
+}
+
+#app,
+#app canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---------- Loading screen ---------- */
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at center, #0a1a26 0%, #02050a 70%);
+  transition: opacity 0.7s ease;
+}
+
+.loading.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading__panel {
+  width: min(420px, 80vw);
+  padding: 24px 28px;
+  border: 1px solid var(--hud-cyan-dim);
+  background: var(--hud-bg);
+  box-shadow: 0 0 24px rgba(46, 230, 255, 0.15);
+}
+
+.loading__title {
+  margin-bottom: 16px;
+  color: var(--hud-cyan);
+  font-size: 14px;
+  letter-spacing: 0.25em;
+}
+
+.loading__bar {
+  height: 6px;
+  background: rgba(46, 230, 255, 0.12);
+}
+
+.loading__fill {
+  width: 0%;
+  height: 100%;
+  background: var(--hud-cyan);
+  box-shadow: 0 0 10px var(--hud-cyan);
+  transition: width 0.2s ease;
+}
+
+.loading__text {
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.loading.is-error .loading__text {
+  color: var(--hud-red);
+  opacity: 1;
+}
+
+/* ---------- HUD ---------- */
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none; /* klik tembus ke canvas, kecuali elemen yang mengaktifkannya */
+  transition: opacity 0.6s ease;
+}
+
+.hud.is-hidden {
+  opacity: 0;
+}
+
+.hud-panel {
+  position: absolute;
+  padding: 14px 16px;
+  border: 1px solid var(--hud-cyan-dim);
+  border-left: 3px solid var(--hud-cyan);
+  background: var(--hud-bg);
+  backdrop-filter: blur(4px);
+  font-size: 12px;
+}
+
+.mission {
+  top: 16px;
+  left: 16px;
+  width: 320px;
+}
+
+.mission__tag {
+  color: var(--hud-cyan);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+}
+
+.mission__title {
+  margin: 6px 0 4px;
+  font-size: 18px;
+  letter-spacing: 0.06em;
+  color: #fff;
+}
+
+.mission__objective {
+  margin: 0 0 10px;
+  line-height: 1.45;
+  opacity: 0.85;
+}
+
+.objectives {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.objectives li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  letter-spacing: 0.1em;
+  opacity: 0.55;
+  transition: opacity 0.3s, color 0.3s;
+}
+
+.objectives__mark {
+  width: 10px;
+  height: 10px;
+  border: 1px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.objectives__state {
+  margin-left: auto;
+  font-size: 10px;
+}
+
+.objectives li[data-state='next'] {
+  opacity: 1;
+  color: var(--hud-amber);
+}
+
+.objectives li[data-state='next'] .objectives__mark {
+  animation: blink 1s steps(2, start) infinite;
+}
+
+.objectives li[data-state='done'] {
+  opacity: 1;
+  color: var(--hud-green);
+}
+
+.objectives li[data-state='done'] .objectives__mark {
+  background: currentColor;
+}
+
+.progress {
+  height: 5px;
+  background: rgba(46, 230, 255, 0.12);
+}
+
+.progress__fill {
+  width: 0;
+  height: 100%;
+  background: var(--hud-cyan);
+  box-shadow: 0 0 8px var(--hud-cyan);
+  transition: width 0.5s ease;
+}
+
+.mission__meta {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 0;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.mission__meta b {
+  color: #fff;
+}
+
+.mission__hint {
+  padding: 6px 8px;
+  background: rgba(46, 230, 255, 0.08);
+}
+
+.mission__hint b {
+  color: var(--hud-amber);
+}
+
+.mission__order {
+  margin-top: 6px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.hud-button {
+  pointer-events: auto;
+  padding: 8px 14px;
+  border: 1px solid var(--hud-cyan);
+  background: var(--hud-bg);
+  color: var(--hud-cyan);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.hud-button:hover {
+  background: var(--hud-cyan);
+  color: #021018;
+}
+
+.reset-button {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+
+/* ---------- Info hologram ---------- */
+.holo-info {
+  top: 70px;
+  right: 16px;
+  width: 300px;
+  opacity: 0;
+  transform: translateX(20px);
+  transition: opacity 0.4s, transform 0.4s;
+}
+
+.holo-info.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+.holo-info__list {
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.holo-info__list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(46, 230, 255, 0.12);
+  letter-spacing: 0.1em;
+}
+
+.holo-info p {
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+
+.holo-info__exit {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* ---------- Tooltip ---------- */
+.tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  min-width: 170px;
+  padding: 8px 10px;
+  border: 1px solid var(--hud-cyan-dim);
+  background: var(--hud-bg);
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.tooltip.is-visible {
+  opacity: 1;
+}
+
+.tooltip__title {
+  color: #fff;
+  letter-spacing: 0.12em;
+}
+
+.tooltip__status {
+  margin-top: 2px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.tooltip__hint {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.tone-info {
+  color: var(--hud-cyan);
+}
+.tone-success {
+  color: var(--hud-green);
+}
+.tone-warning {
+  color: var(--hud-amber);
+}
+.tone-error {
+  color: var(--hud-red);
+}
+
+/* ---------- Toast ---------- */
+.toasts {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transform: translateX(-50%);
+}
+
+.toast {
+  padding: 9px 16px;
+  border: 1px solid currentColor;
+  background: var(--hud-bg);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  animation: toast-in 0.25s ease-out;
+}
+
+.toast--info {
+  color: var(--hud-cyan);
+}
+.toast--success {
+  color: var(--hud-green);
+}
+.toast--error {
+  color: var(--hud-red);
+  box-shadow: 0 0 16px rgba(255, 42, 58, 0.35);
+}
+
+.toast.is-leaving {
+  animation: toast-out 0.3s ease-in forwards;
+}
+
+/* ---------- Flash alarm ---------- */
+.alarm-flash {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  box-shadow: inset 0 0 160px 40px rgba(255, 20, 40, 0.55);
+}
+
+.alarm-flash.is-active {
+  animation: alarm 1.8s ease-out;
+}
+
+/* ---------- Hint kontrol ---------- */
+.hint {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border: 1px solid var(--hud-cyan-dim);
+  background: var(--hud-bg);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* ---------- Overlay Mission Complete ---------- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at center, rgba(4, 30, 24, 0.55), rgba(2, 5, 10, 0.85));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.8s ease;
+}
+
+.overlay.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.overlay__panel {
+  width: min(440px, 88vw);
+  padding: 28px 32px;
+  border: 1px solid var(--hud-green);
+  background: var(--hud-bg);
+  box-shadow: 0 0 40px rgba(61, 255, 154, 0.2);
+  text-align: center;
+}
+
+.overlay__panel .mission__tag {
+  color: var(--hud-green);
+}
+
+.overlay__title {
+  margin: 10px 0 18px;
+  color: var(--hud-green);
+  font-size: 30px;
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 18px rgba(61, 255, 154, 0.6);
+}
+
+.overlay__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 0 0 22px;
+}
+
+.overlay__stats dt {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.overlay__stats dd {
+  margin: 4px 0 0;
+  color: #fff;
+  font-size: 24px;
+}
+
+.overlay__note {
+  margin: -8px 0 18px;
+  font-size: 12px;
+  color: var(--hud-amber);
+}
+
+/* ---------- Briefing ---------- */
+.briefing {
+  background: radial-gradient(circle at center, rgba(30, 6, 10, 0.45), rgba(2, 5, 10, 0.88));
+}
+
+.briefing__panel {
+  width: min(560px, 92vw);
+  border-color: var(--hud-red);
+  box-shadow: 0 0 40px rgba(255, 42, 58, 0.18);
+  text-align: left;
+}
+
+.briefing__panel .mission__tag {
+  color: var(--hud-red);
+}
+
+.briefing__title {
+  margin: 10px 0 12px;
+  color: #fff;
+  font-size: 26px;
+  letter-spacing: 0.08em;
+}
+
+.briefing__story {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  opacity: 0.9;
+}
+
+.briefing__steps {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.briefing__purple {
+  color: #b36bff;
+}
+
+.briefing__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 20px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--hud-cyan-dim);
+  color: var(--hud-cyan);
+  font-family: inherit;
+}
+
+.briefing__start {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  font-size: 14px;
+}
+
+/* ---------- Panel misi bisa diciutkan ---------- */
+.mission__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mission__collapse {
+  pointer-events: auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--hud-cyan-dim);
+  background: transparent;
+  color: var(--hud-cyan);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mission.is-collapsed .mission__body,
+.mission.is-collapsed .mission__order {
+  display: none;
+}
+
+.mission.is-collapsed .progress {
+  margin-top: 10px;
+}
+
+/* ---------- Panel performa ---------- */
+.perf {
+  bottom: 60px;
+  left: 16px;
+  display: none;
+  min-width: 220px;
+}
+
+.perf.is-visible {
+  display: block;
+}
+
+.perf__body {
+  margin: 8px 0 0;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* ---------- Keyframes ---------- */
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes alarm {
+  0%,
+  30%,
+  60% {
+    opacity: 1;
+  }
+  15%,
+  45% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .mission {
+    width: calc(100vw - 32px);
+  }
+  .hint {
+    display: none;
+  }
+}

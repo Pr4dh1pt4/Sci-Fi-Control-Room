@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- favicon kosong agar browser tidak me-request /favicon.ico (mencegah 404 di Console) -->
+    <link rel="icon" href="data:," />
+    <title>Sci-Fi Control Room</title>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="loading" class="loading">
+      <div class="loading__panel">
+        <div class="loading__title">INITIALIZING CONTROL ROOM</div>
+        <div class="loading__bar"><div class="loading__fill" id="loading-fill"></div></div>
+        <div class="loading__text" id="loading-text">0%</div>
+      </div>
+    </div>
+
+    <!-- Briefing: muncul setelah loading, sebelum misi dimulai. -->
+    <div class="overlay briefing" id="briefing">
+      <div class="overlay__panel briefing__panel">
+        <div class="mission__tag tone-error">⚠ LOCKDOWN ALERT // SECTOR 7 CONTROL ROOM</div>
+        <h2 class="briefing__title">Restore Facility Access</h2>
+        <p class="briefing__story">
+          Fasilitas luar angkasa berada dalam keadaan <b>lockdown</b>. Daya, jaringan, dan keamanan mati, dan pintu utama
+          terkunci. Pulihkan sistem dari ruang kontrol untuk membuka jalan keluar.
+        </p>
+        <ol class="briefing__steps">
+          <li>Aktifkan <b class="tone-warning">POWER</b> → <b class="tone-info">NETWORK</b> → <b class="briefing__purple">SECURITY</b> di panel console.</li>
+          <li>Urutan salah akan <b class="tone-error">ditolak</b> dan protokol diulang dari awal.</li>
+          <li>Setelah ketiganya aktif, klik <b class="tone-success">FINAL TERMINAL</b> di samping pintu.</li>
+        </ol>
+        <div class="briefing__controls">
+          <span><kbd>Drag</kbd> orbit</span>
+          <span><kbd>Scroll</kbd> zoom</span>
+          <span><kbd>Klik</kbd> panel / hologram / terminal</span>
+          <span><kbd>Esc</kbd> kembali</span>
+          <span><kbd>R</kbd> reset</span>
+        </div>
+        <button class="hud-button briefing__start" id="start-button" type="button">MULAI MISI [ENTER]</button>
+      </div>
+    </div>
+
+    <!-- HUD: container tidak menangkap klik (pointer-events: none) kecuali tombol. -->
+    <div id="hud" class="hud is-hidden">
+      <section class="hud-panel mission" id="mission-panel">
+        <div class="mission__header">
+          <div class="mission__tag">MISSION // LOCKDOWN PROTOCOL</div>
+          <button class="mission__collapse" id="mission-collapse" type="button" aria-label="Ciutkan panel misi" title="Ciutkan / buka panel">−</button>
+        </div>
+        <div class="mission__body">
+          <h1 class="mission__title">Restore Facility Access</h1>
+          <p class="mission__objective">
+            Aktifkan sistem fasilitas dengan urutan yang benar, lalu buka pintu utama melalui Final Terminal.
+          </p>
+          <ol class="objectives">
+            <li data-step="power" data-state="next"><span class="objectives__mark"></span>POWER<span class="objectives__state">OFFLINE</span></li>
+            <li data-step="network" data-state="pending"><span class="objectives__mark"></span>NETWORK<span class="objectives__state">OFFLINE</span></li>
+            <li data-step="security" data-state="pending"><span class="objectives__mark"></span>SECURITY<span class="objectives__state">OFFLINE</span></li>
+            <li data-step="door" data-state="pending"><span class="objectives__mark"></span>FINAL DOOR<span class="objectives__state">LOCKED</span></li>
+          </ol>
+        </div>
+        <div class="progress"><div class="progress__fill" id="progress-fill"></div></div>
+        <div class="mission__meta">
+          <span>PROGRESS <b id="progress-text">0 / 4</b></span>
+          <span>ERROR <b id="error-count">0</b></span>
+          <span>TIME <b id="mission-time">00:00</b></span>
+        </div>
+        <div class="mission__hint" id="sequence-hint"></div>
+        <div class="mission__order">Urutan: POWER → NETWORK → SECURITY → FINAL TERMINAL</div>
+      </section>
+
+      <button class="hud-button reset-button" id="reset-button" type="button">RESET [R]</button>
+
+      <section class="hud-panel holo-info" id="holo-info">
+        <div class="mission__tag">HOLOGRAM // FACILITY STATUS</div>
+        <div id="holo-info-body"></div>
+        <div class="holo-info__exit">Klik hologram lagi atau tekan <b>Esc</b> untuk kembali</div>
+      </section>
+
+      <section class="hud-panel perf" id="perf-panel">
+        <div class="mission__tag">PERFORMANCE [P]</div>
+        <pre class="perf__body" id="perf-body"></pre>
+      </section>
+
+      <div class="toasts" id="toasts"></div>
+      <div class="tooltip" id="tooltip"></div>
+      <div class="alarm-flash" id="alarm-flash"></div>
+
+      <div class="hint">
+        Drag: orbit &middot; Scroll: zoom &middot; Klik panel: aktivasi &middot; Klik hologram: info &middot; Esc: kembali
+        &middot; R: reset &middot; P: performa &middot; H: helper
+      </div>
+    </div>
+
+    <div class="overlay" id="complete-overlay">
+      <div class="overlay__panel">
+        <div class="mission__tag">FACILITY ACCESS RESTORED</div>
+        <h2 class="overlay__title">MISSION COMPLETE</h2>
+        <dl class="overlay__stats">
+          <div><dt>Waktu penyelesaian</dt><dd id="result-time">00:00</dd></div>
+          <div><dt>Kesalahan urutan</dt><dd id="result-errors">0</dd></div>
+        </dl>
+        <p class="overlay__note" id="result-note"></p>
+        <button class="hud-button" id="overlay-reset" type="button">RESET MISI [R]</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
