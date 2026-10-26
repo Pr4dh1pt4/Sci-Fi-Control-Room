@@ -1,603 +1,553 @@
 # Catatan Pemahaman — Sci-Fi Control Room
 
-Dokumen ini menjelaskan kode per milestone dan konsep grafika komputer yang dipakai.
-Tujuannya agar setiap anggota bisa menjelaskan **apa** yang dikerjakan kode dan **mengapa**.
+Dokumen ini menjelaskan **apa saja yang dibangun** di website ini, **bagaimana cara kerjanya**, dan
+**konsep grafika komputer** di baliknya. Disusun per topik agar mudah dipakai saat demo.
 
 ---
 
-## Milestone 1 — Core Scene
+## 1. Ringkasan singkat (untuk pembuka demo)
 
-### 1. Alur program (bootstrap)
+Sci-Fi Control Room adalah aplikasi 3D interaktif berbasis browser (Three.js r186 + Vite). Pemain berada
+di ruang kontrol fasilitas luar angkasa yang sedang **lockdown**, lalu harus mengaktifkan tiga sistem dengan
+urutan benar, yaitu **POWER → NETWORK → SECURITY**, kemudian membuka pintu utama lewat **Final Terminal**.
+
+Yang dibangun:
+- Ruangan 3D lengkap dengan **scene graph** bertingkat: console 3 panel, pintu geser, reactor dengan ring
+  berputar, proyektor hologram, robot, dan terminal.
+- **3 model GLB** (robot, terminal, planet hologram), **material PBR**, **lighting + shadow**, dan
+  **environment map**.
+- **Interaksi** dengan Raycaster: hover, klik, dan fokus kamera.
+- **State machine misi** dengan aturan urutan, hitungan kesalahan, completion, dan reset.
+- **Animasi** dan **VFX**: shader hologram buatan sendiri, partikel percikan, emissive pulse, warning light.
+- **HUD** lengkap, **musik latar** dan **efek suara sintetis**, serta alat ukur performa.
+
+---
+
+## 2. Alur aplikasi
 
 ```
-index.html ──> src/main.js
-                 │
-                 ├─ createStage()       (scene.js)  renderer, scene, camera, controls, lights, fog
-                 ├─ await loadAssets()  (assets.js) GLB / HDR / texture  ──> null bila tidak ada
-                 ├─ applyEnvironment()  (scene.js)  HDR atau RoomEnvironment -> scene.environment
-                 ├─ buildControlRoom()  (room.js)   seluruh isi ruangan (scene graph)
-                 ├─ renderer.compile()              compile shader sebelum frame pertama
-                 └─ setAnimationLoop()              render loop: timer -> controls.update -> render
+Loading (progress bar)
+  → Briefing "LOCKDOWN ALERT" (objective, aturan, kontrol)
+  → [MULAI / Enter] → musik mulai + intro kamera meluncur ke posisi awal
+  → Misi berjalan (timer aktif): explore → inspect → activate → animasi/VFX
+  → 3 sistem aktif → Final Terminal READY → klik → pintu terbuka
+  → Overlay MISSION COMPLETE (waktu, jumlah kesalahan, rekor)
+  → [R / RESET] → semua kembali ke kondisi awal
 ```
 
-**Render loop**: `renderer.setAnimationLoop(fn)` memanggil `fn` sekitar 60x per detik (sinkron dengan
-refresh layar, seperti `requestAnimationFrame`). Setiap frame: hitung `delta` (waktu sejak frame
-sebelumnya) dengan `THREE.Timer`, update kontrol kamera, lalu `renderer.render(scene, camera)`.
-Animasi nantinya dikalikan `delta` agar kecepatannya sama di layar 60 Hz maupun 144 Hz.
+Kondisi visual mengikuti cerita:
 
-### 2. Penjelasan per file
-
-| File | Isi utama |
+| Kondisi | Yang terlihat & terdengar |
 |---|---|
-| `vite.config.js` | Konfigurasi Vite + plugin kecil `asset-manifest` (lihat bagian 3.11). `base: './'` agar hasil build bisa dibuka dari folder mana pun. |
-| `index.html` | Container canvas `#app`, layar loading, hint kontrol. `<link rel="icon" href="data:,">` mencegah request favicon 404. |
-| `src/main.js` | Bootstrap & render loop. Di mode dev menyediakan `__controlRoom.printSceneGraph()` di DevTools Console. |
-| `src/scene.js` | `createStage()` membuat renderer, scene, fog, camera, OrbitControls, lights, resize handler. `applyEnvironment()` membuat environment map. `CAMERA_HOME` = posisi kamera awal. |
-| `src/room.js` | `buildControlRoom()` membangun semua object. Konstanta `ROOM`, `LAYOUT`, `COLORS`, `PANEL_DEFS`. Fungsi `drawScreen()` menggambar isi layar panel (dipakai lagi di Milestone 2 saat status berubah). |
-| `src/assets.js` | Path konstanta asset, `loadAssets()` (LoadingManager + GLTFLoader + HDRLoader + TextureLoader), `fitModel()` (normalisasi ukuran model), dan fallback prosedural (robot, server terminal, model hologram). |
-| `src/effects.js` | Untuk sekarang: `createHologramBasicMaterial()` (material additive). Shader hologram & VFX lain menyusul di Milestone 3. |
-| `src/ui.js` | Layar loading (`setLoadingProgress`, `hideLoading`, `showFatalError`). |
-| `src/state.js`, `interaction.js`, `animation.js` | Masih kosong, diisi di Milestone 2–3. |
+| Lockdown (awal) | Ruangan redup, warning light merah berdenyut, hologram berkedip lemah, musik teredam |
+| POWER aktif | Lampu ruangan menyala, reactor berputar cepat, musik menjadi jernih |
+| NETWORK aktif | Hologram stabil dan terang |
+| SECURITY aktif | Alarm padam, lockLight pintu berubah amber, pad terminal berdenyut hijau |
+| Pintu terbuka | Daun pintu bergeser, lockLight hijau, lorong di belakang menyala |
+| Urutan salah | Panel ACCESS DENIED, alarm berkedip cepat, percikan merah, buzzer, semua sistem kembali standby |
 
-### 3. Konsep grafika komputer yang dipakai
+---
 
-#### 3.1 Scene, Camera, Renderer
-- **Scene**: wadah semua object (mesh, light, camera). Berbentuk pohon (tree).
-- **PerspectiveCamera(55°, aspect, near 0.1, far 60)**: proyeksi perspektif (object jauh tampak kecil).
-  FOV 55° vertikal; `near`/`far` membatasi frustum. Rentang near–far dibuat secukupnya agar presisi depth buffer baik.
-- **WebGLRenderer**: menggambar scene dari sudut pandang camera ke `<canvas>` memakai GPU (WebGL).
+## 3. Struktur file & arsitektur
 
-#### 3.2 Scene graph & transform parent–child
-Setiap `Object3D` punya transform **lokal** (position, rotation, scale) relatif terhadap parent-nya.
-Transform **world** = matriks parent × matriks lokal (dikalikan berantai sampai ke Scene).
+| File | Tugas |
+|---|---|
+| `index.html` | Canvas, layar loading, briefing, HUD, overlay selesai |
+| `vite.config.js` | Konfigurasi Vite + plugin `asset-manifest` (daftar file di `public/`) |
+| `src/main.js` | Titik masuk: membuat semua modul, menghubungkan event, menjalankan render loop |
+| `src/scene.js` | Renderer, scene, kamera, OrbitControls, lights, environment, fog, debug helper, monitor performa |
+| `src/room.js` | Membangun seluruh isi ruangan (lantai, dinding, console, pintu, mesin, hologram, props) + material |
+| `src/assets.js` | Path asset, loader (GLB/HDR/texture), `fitModel`, model fallback prosedural |
+| `src/state.js` | State machine misi (urutan, kesalahan, completion, reset), tanpa Three.js maupun DOM |
+| `src/interaction.js` | Raycaster (hover & klik), membedakan klik vs drag, keyboard |
+| `src/animation.js` | Mesin tween & easing, camera rig, animator yang menerjemahkan state menjadi visual |
+| `src/effects.js` | Shader hologram & beam, partikel percikan, emissive pulse panel, warning light |
+| `src/ui.js` + `src/style.css` | HUD, tooltip, toast, briefing, overlay, panel performa |
+| `src/audio.js` | Musik latar + efek suara sintetis |
 
-Struktur scene (bisa dicek dengan `__controlRoom.printSceneGraph()`):
+Cara modul saling berkomunikasi:
+
+```
+  mouse / keyboard
+        │
+  interaction.js ── Raycaster ──> target yang diklik {type, id}
+        │
+     main.js  (memutuskan aksi)
+        │
+  state.js  mission.activate() / openDoor() / reset()
+        │   memancarkan event: activated · rejected · ready · locked · complete · reset · change
+        ▼
+  ┌─────────────┬──────────┬──────────────┬──────────┐
+ animation.js   ui.js      camera rig     audio.js
+ (visual 3D)    (HUD)      (fokus)        (suara)
+```
+
+Prinsip utama: **logika misi (`state.js`) terpisah dari tampilan.** State hanya menyimpan aturan dan
+memberi tahu lewat event; visual, HUD, kamera, dan suara bereaksi terhadap event itu.
+
+---
+
+## 4. Render loop
+
+`renderer.setAnimationLoop(fn)` memanggil `fn` setiap frame (±60 kali per detik, sinkron dengan layar).
+Urutan kerja setiap frame:
+
+1. `THREE.Timer` menghitung **delta time** (`dt`, detik sejak frame sebelumnya), dibatasi maks 0.1 s.
+2. Update tween (animasi berdurasi) dan kamera.
+3. **Satu raycast** untuk hover, lalu tooltip.
+4. Animator memperbarui semua visual (ring, hologram, lampu, pintu, partikel, warna).
+5. Audio: filter musik mengikuti level POWER.
+6. `renderer.render(scene, camera)`.
+7. Monitor performa membaca statistik render.
+
+Semua gerakan dikalikan `dt` supaya kecepatannya sama di layar 30 Hz, 60 Hz, maupun 144 Hz.
+`THREE.Timer` dipakai karena `THREE.Clock` sudah deprecated sejak r183.
+
+---
+
+## 5. Scene graph
+
+Setiap object punya transform **lokal** (position, rotation, scale) relatif terhadap parent.
+Transform **world** = matriks parent × matriks lokal, dikalikan berantai sampai ke Scene.
 
 ```
 Scene
-├── Camera
-├── Lights (Hemi, Key/Directional, Machine/Hologram/Console/Warning PointLight)
+├── Camera ── AudioListener (telinga untuk suara)
+├── Lights (HemiLight, KeyLight, MachineLight, HologramLight, ConsoleLight, WarningPointLight ×2)
+├── SparkParticles
 └── ControlRoom
-    ├── Floor           (FloorSurface, DoorHazardStripe)
-    ├── Walls           (dinding, ceiling, pilar, strip lampu, WarningLight_L/R)
-    ├── ConsoleGroup    (ConsolePlatform, Station_SECURITY/POWER/NETWORK
-    │                     └── Desk + <X>Panel → Base, Screen, Button, Indicator)
-    ├── DoorGroup       (DoorFrame, leftLeaf, rightLeaf, LockLight, Corridor, FinalTerminal)
-    ├── MachineGroup    (base, struts, core, glass, RingPivot → RingTilt_i → Ring_i)
-    ├── HologramGroup   (base, emitter, beam, HoloPivot → HoloModel + HoloRing)
-    └── PropsGroup      (Robot, ServerTerminal, Crates)
+    ├── Floor          FloorSurface, DoorHazardStripe
+    ├── Walls          dinding, ceiling, Pillars (InstancedMesh), strip lampu, WarningLight_L/R
+    ├── ConsoleGroup   ConsolePlatform, Station_SECURITY / Station_POWER / Station_NETWORK
+    │                    └── Desk + <X>Panel → Base, Screen, Button, Indicator
+    ├── DoorGroup      DoorFrame, leftLeaf, rightLeaf, LockLight, Corridor, FinalTerminal
+    ├── MachineGroup   base, strut, core, kaca, pipa, RingPivot → RingTilt_i → Ring_i
+    ├── HologramGroup  base, emitter, beam, HoloHitProxy, HoloPivot → HoloModel + HoloRing
+    └── PropsGroup     Robot, ServerTerminal, Crates
 ```
 
-Contoh penerapan:
-- **Station console**: `Station_POWER` diputar (`rotation.y`) agar menghadap pemain. Meja dan panel
-  adalah child station, jadi otomatis ikut berputar. Panel sendiri dimiringkan `rotation.x = 0.5`
-  relatif terhadap station. Jadi orientasi akhir panel = rotasi station ∘ rotasi panel.
-- **Pintu**: `leftLeaf` & `rightLeaf` adalah child `DoorGroup`. Untuk membuka pintu cukup mengubah
-  `position.x` lokal daun pintu (nilai `userData.closedX` → `userData.openX`). Seandainya seluruh
-  DoorGroup dipindah, daun pintu tetap berada di tempat yang benar.
-- **Ring mesin**: `RingTilt_i` menyimpan kemiringan tetap, `Ring_i` (child-nya) nanti diputar pada
-  sumbunya sendiri. Memisahkan "kemiringan" dan "putaran" ke dua node menghindari rotasi yang kacau.
-- **Hologram**: `HoloPivot` nanti diputar & di-bobbing; model hologram dan ring ikut karena child.
+Hierarki bisa dicetak saat `npm run dev` lewat DevTools Console: `__controlRoom.printSceneGraph()`.
 
-#### 3.3 Material PBR (Physically Based Rendering)
-`MeshStandardMaterial` memodelkan pantulan cahaya secara fisik dengan dua parameter utama:
-- **metalness** (0–1): 0 = dielektrik (cat, plastik; ada pantulan difus berwarna), 1 = logam
-  (tidak ada difus; warna berasal dari pantulan lingkungan/specular berwarna).
-- **roughness** (0–1): 0 = permukaan licin (pantulan tajam seperti cermin), 1 = kasar (pantulan menyebar/buram).
+Contoh manfaat parent–child:
+- **Station console**: station diputar menghadap pemain; meja dan panel sebagai child ikut berputar.
+  Panel lalu dimiringkan sendiri (`rotation.x = 0.5`) relatif terhadap station.
+- **Pintu**: `leftLeaf` & `rightLeaf` adalah child `DoorGroup`. Membuka pintu cukup dengan menggeser
+  `position.x` lokal daun pintu. Kalau DoorGroup dipindah, daun pintu tetap di tempat yang benar.
+- **Ring reactor**: `RingTilt_i` menyimpan kemiringan tetap, `Ring_i` (child) berputar di sumbunya
+  sendiri. Memisahkan "miring" dan "putar" ke dua node membuat rotasinya rapi.
+- **Hologram**: `HoloPivot` diputar dan naik-turun; model planet dan ring ikut karena child.
+- **AudioListener** ditempel ke kamera sehingga "telinga" selalu mengikuti posisi pandang.
+- **Fokus kamera ke panel** memakai world transform panel (lihat bagian 9).
 
-Pemakaian bermakna di project ini:
-| Material | metalness | roughness | Alasan |
+---
+
+## 6. Isi ruangan
+
+Ruangan berukuran 18 × 14 m dengan tinggi 5,5 m. Semua dibangun dari geometry Three.js, kecuali 3 model GLB.
+
+| Bagian | Isi |
+|---|---|
+| Lantai & dinding | Box/plane dengan texture panel logam prosedural, 12 pilar, strip lampu cyan, lampu ceiling |
+| Console | Platform melingkar + 3 station. Urutan kiri→kanan **SECURITY, POWER, NETWORK**, sengaja tidak berurutan agar pemain membaca hint |
+| Panel | Base (pelat), Screen (layar CanvasTexture), Button (tombol), Indicator (lampu status) |
+| Pintu | Frame, 2 daun pintu geser, lockLight, lorong di belakang pintu, Final Terminal di kanan pintu |
+| Reactor | Base, rangka, core bercahaya, tabung kaca, 3 ring miring yang berputar, pipa ke ceiling |
+| Proyektor hologram | Base, emitter, beam kerucut, planet hologram, ring |
+| Props | Robot GLB (kiri depan), terminal GLB (kiri pintu), tumpukan crate |
+
+**Layar panel** digambar dengan Canvas 2D (`drawScreen`) lalu dipakai sebagai texture. Saat status berubah
+(STANDBY / ONLINE / ACCESS DENIED), canvas digambar ulang dan `texture.needsUpdate = true`.
+
+---
+
+## 7. Asset & pemuatan
+
+### Model GLB
+| Model | Sumber | Lisensi | Catatan |
 |---|---|---|---|
-| `floor` | 0.75 | dari roughnessMap | pelat logam lantai; sambungan antar pelat lebih kasar |
-| `wall` | 0.55 | dari roughnessMap | panel dinding logam |
-| `metalLight` (ring, pipa) | 0.95 | 0.22 | logam krom mengkilap, memantulkan environment |
-| `metalDark` | 0.85 | 0.38 | logam gelap rangka/mesin |
-| `painted` (meja console) | 0.35 | 0.5 | logam bercat → lebih banyak difus, bentuk mudah terbaca |
-| `glass` (MeshPhysicalMaterial) | 0 | 0.05 | kaca reactor + `clearcoat` (lapisan pantul tambahan) |
+| Robot | PixelLabs (Pixabay) | Pixabay Content License | Dioptimasi 48 MB → 2,4 MB |
+| Terminal | lazarosv (Pixabay) | Pixabay Content License | Tidak diubah |
+| Planet (hologram) | ScanLife / AhmetGuner3d (Sketchfab) | CC BY 4.0 | Material diganti shader hologram |
 
-`roughnessMap`: nilai roughness diambil per-pixel dari texture (channel hijau) lalu dikalikan
-`material.roughness` (makanya diset 1).
+Detail credits ada di README.
 
-#### 3.4 Emissive
-`emissive` + `emissiveIntensity` membuat permukaan memancarkan warna sendiri tanpa butuh cahaya
-(mis. layar panel, indicator light, lockLight, strip lampu). Emissive **tidak** menerangi object lain;
-untuk itu dipasang PointLight berwarna di dekatnya. Layar panel memakai `CanvasTexture` sebagai
-`emissiveMap` (warna = hitam, jadi hanya emisi texture yang terlihat).
+### Cara memuat
+- `GLTFLoader` (model), `HDRLoader` (HDR, nama baru `RGBELoader` sejak r180), `TextureLoader`.
+- `THREE.LoadingManager` menghitung progres semua loader untuk progress bar.
+- **Plugin `asset-manifest`** (buatan sendiri, di `vite.config.js`) memindai isi `public/` saat build/dev.
+  `assets.js` hanya me-request file yang benar-benar ada, sehingga **Console tidak dipenuhi error 404**
+  bila ada asset yang belum disediakan. Yang tidak ada memakai **fallback prosedural** (model dari primitive
+  geometry) dan dicatat dengan satu `console.info`.
+- **`fitModel()`**: model dari internet punya skala dan titik pusat sembarang. Fungsi ini menghitung
+  **bounding box**, menskalakan model ke ukuran target (robot 1,25 m, terminal 2,1 m, planet 1,25 m), lalu
+  memindahkan alasnya ke lantai dan memusatkannya. Model dibungkus `Group` agar penempatannya mudah.
 
-#### 3.5 Lighting
+### Optimasi robot GLB
+File asli 48 MB berisi 3 texture PNG 4096×4096, yang memakan ±270 MB memori GPU.
+- Memori GPU texture ≈ lebar × tinggi × 4 byte × 1,33 (mipmap). 4096² ≈ 89 MB, 1024² ≈ 5,6 MB per texture.
+- Robot di layar hanya ±200–300 px, jadi texture 1024 sudah cukup.
+- Memakai tool `gltf-transform`: resize ke 1024 lalu konversi ke JPEG. Hasil **2,4 MB**, geometri tidak
+  berubah, validator glTF tanpa error. File asli disimpan di `assets-source/`.
+
+---
+
+## 8. Material, texture, dan cahaya
+
+### Material PBR
+`MeshStandardMaterial` memodelkan pantulan cahaya secara fisik:
+- **metalness** (0–1): 0 = bukan logam (cat/plastik, punya warna difus), 1 = logam (warna dari pantulan).
+- **roughness** (0–1): 0 = licin (pantulan tajam), 1 = kasar (pantulan buram).
+
+| Material | metalness | roughness | Dipakai untuk |
+|---|---|---|---|
+| floor | 0,75 | dari roughnessMap | pelat lantai logam |
+| wall | 0,55 | dari roughnessMap | panel dinding |
+| metalLight | 0,95 | 0,22 | krom: ring, pipa, rangka |
+| metalDark | 0,85 | 0,38 | logam gelap: mesin, frame |
+| painted | 0,35 | 0,5 | meja console (logam bercat) |
+| glass (`MeshPhysicalMaterial`) | 0 | 0,05 | tabung reactor + clearcoat |
+
+### Texture prosedural
+Lantai dan dinding memakai texture yang **dibuat dengan kode** (Canvas 2D), lengkap 3 jenis map:
+- **Color map**: warna panel dengan variasi, sambungan gelap, baut.
+- **Roughness map**: sambungan lebih kasar daripada permukaan panel, plus goresan halus.
+- **Normal map**: dihitung dari *height map* (sambungan rendah, panel tinggi, baut menonjol) dengan beda
+  hingga: `dx = h(x+1) − h(x−1)`, `dy = h(y+1) − h(y−1)`, `normal = normalize(−dx·s, dy·s, 1)`.
+  Hasilnya bevel dan baut menangkap cahaya tanpa menambah polygon.
+- Random memakai seed tetap supaya texture selalu sama setiap dibuka.
+- UV box diskalakan sesuai ukuran fisik (`scaleBoxUVs`) agar texture tidak melar di dinding panjang.
+
+### Emissive
+`emissive` + `emissiveIntensity` membuat permukaan bercahaya sendiri: layar panel, tombol, indicator,
+lockLight, warning light, strip lampu, core reactor, layar Final Terminal. Emissive tidak menerangi object
+lain, jadi di dekatnya dipasang PointLight berwarna.
+
+### Lighting
 | Light | Fungsi |
 |---|---|
-| `HemisphereLight` | ambient dua warna (atas kebiruan, bawah gelap) agar sisi gelap tidak hitam total |
-| `DirectionalLight` (KeyLight) | cahaya utama dari atas, sinarnya sejajar; **satu-satunya yang cast shadow** |
-| `PointLight` cyan | di core reactor & hologram (cahaya "dari" mesin) |
-| `PointLight` merah | di dua warning light (suasana lockdown) |
-| `PointLight` biru | di atas console |
+| HemisphereLight | Cahaya ambient dua warna (atas kebiruan, bawah gelap) |
+| DirectionalLight (KeyLight) | Cahaya utama dari atas; **satu-satunya yang cast shadow** |
+| PointLight cyan ×2 | Reactor & hologram |
+| PointLight biru | Di atas console |
+| PointLight merah ×2 | Warning light (berdenyut/berkedip) |
 
-PointLight memakai `decay = 2` (inverse-square law: intensitas ∝ 1/jarak²) dan `distance` sebagai
-batas pengaruh agar ringan.
+PointLight memakai `decay = 2` (hukum kuadrat terbalik) dan `distance` sebagai batas pengaruh.
+Intensitas cahaya berubah sesuai state: gelap saat lockdown, terang setelah POWER aktif.
 
-#### 3.6 Shadow mapping
-1. Renderer menggambar scene dari sudut pandang light ke **shadow map** (texture depth 2048×2048).
-2. Saat render biasa, tiap pixel dibandingkan kedalamannya dengan shadow map: bila ada object lebih
-   dekat ke light → pixel berada dalam bayangan.
-- `castShadow = true`: object ikut digambar ke shadow map (meja, mesin, robot, pintu, crate).
-- `receiveShadow = true`: permukaan bisa menerima bayangan (lantai, dinding, platform).
-- Shadow camera DirectionalLight berupa **orthographic** −10..10 m yang menutupi ruangan 18×14 m.
-- `shadow.bias` / `normalBias` mencegah *shadow acne* (garis-garis bayangan pada permukaan sendiri).
-- Dinding & ceiling tidak cast shadow sehingga cahaya overhead tetap masuk.
+### Shadow
+1. Renderer menggambar scene dari sudut pandang KeyLight ke **shadow map** (texture kedalaman 2048×2048).
+2. Saat render biasa, setiap pixel dibandingkan dengan shadow map: bila ada object yang lebih dekat ke
+   light, pixel itu berada dalam bayangan.
+- `castShadow`: robot, terminal, meja, reactor, pintu, crate. `receiveShadow`: lantai, dinding, platform.
+- Shadow camera orthographic ±10 m menutupi ruangan. `bias`/`normalBias` mencegah *shadow acne*.
+- `PCFShadowMap` + `radius = 3` membuat tepi bayangan lembut.
 
-#### 3.7 Environment map (Image-Based Lighting)
-Material logam butuh "sesuatu untuk dipantulkan". `scene.environment` memberi semua material PBR
-cahaya & pantulan dari environment map:
-- Bila `public/environments/control_room.hdr` ada → dimuat dengan **HDRLoader**.
-  (`RGBELoader` di soal sudah diganti namanya menjadi `HDRLoader` sejak three r180; memakai nama lama
-  memunculkan warning deprecated di Console.)
-- Bila tidak ada → **RoomEnvironment** (ruangan prosedural bawaan Three.js).
-- **PMREMGenerator** mengubah environment menjadi mipmap yang di-blur bertingkat: material dengan
-  roughness tinggi mengambil versi yang lebih blur.
-- `scene.environmentIntensity` dibuat rendah (0.3) agar suasana tetap gelap/dramatis.
-
-#### 3.8 Fog
-`FogExp2(warna, density)`: faktor fog = 1 − e^−(density × jarak)². Dengan density 0.028, dinding belakang
-(±12 m) hanya ~10% tertutup fog: memberi kesan kedalaman tanpa membuat ruangan buram.
-
-#### 3.9 Color space & tone mapping
-- Texture warna (map, emissiveMap canvas) diberi `SRGBColorSpace`; normal/roughness map dibiarkan linear
-  karena berisi data, bukan warna.
-- Perhitungan cahaya dilakukan di ruang linear, lalu **ACESFilmic tone mapping** memetakan nilai
-  terang (>1, misalnya emissive) ke rentang layar. Efek sampingnya: emissive merah yang terlalu kuat
-  bergeser ke putih/salmon, jadi intensitasnya dijaga rendah (1.0–1.6).
-
-#### 3.10 Texture prosedural & UV
-- Lantai/dinding memakai texture yang digambar dengan Canvas 2D (`createPanelTextures`): color map +
-  roughness map, dengan random ber-seed agar hasilnya selalu sama.
-- `scaleBoxUVs()` mengalikan UV tiap sisi box dengan ukuran fisiknya, sehingga 1 tile texture = 2.75 m
-  di semua dinding (tidak melar di dinding panjang). Lantai memakai cara yang sama pada PlaneGeometry.
-- Bila file `public/textures/floor_*.jpg` / `wall_*.jpg` tersedia, file itulah yang dipakai.
-
-#### 3.11 Pemuatan asset & fallback
-- `THREE.LoadingManager` menghitung progres semua loader → dipakai untuk progress bar loading.
-- **Masalah**: me-request file yang tidak ada menghasilkan error 404 merah di Console.
-  **Solusi**: plugin `asset-manifest` di `vite.config.js` memindai `public/models`, `environments`,
-  `textures`, `audio` dan menghasilkan modul `virtual:asset-manifest` (daftar file yang ada).
-  `assets.js` hanya me-request file yang ada di daftar itu; sisanya memakai fallback prosedural dan
-  dicatat dengan **satu** `console.info`. Saat dev, menambah/menghapus file di `public/` otomatis
-  memperbarui daftar dan me-reload halaman.
-- `fitModel()`: GLB dari internet punya skala & pivot sembarang. Fungsi ini menghitung **bounding box**
-  (`Box3.setFromObject`), menskalakan model ke tinggi/ukuran target, lalu menggeser agar alasnya di
-  y = 0 dan terpusat di XZ. Model dibungkus `Group` sehingga posisi di ruangan diatur lewat wrapper.
-
-#### 3.12 Kamera & OrbitControls
-OrbitControls memutar kamera mengelilingi `target` dalam koordinat **spherical** (jarak, sudut polar,
-sudut azimuth). Batas yang dipasang:
-- `minDistance 2.5` / `maxDistance 7.5`
-- `minPolarAngle 1.05` (~60°) / `maxPolarAngle 1.52` (~87°): tidak menembus ceiling (5.5 m) atau lantai.
-- `min/maxAzimuthAngle ±1.1`: kamera tetap di sisi depan ruangan, tidak menembus dinding.
-- `enablePan = false`: target terkunci di pusat ruangan.
-- `enableDamping`: gerakan melambat halus; konsekuensinya `controls.update()` wajib dipanggil tiap frame.
-
-Batas ini sudah diuji di posisi ekstrem: kamera maksimal di x = ±6.7 (dinding di ±8.85) dan
-y = 5.03 (ceiling 5.5).
-
-**Resize**: saat jendela berubah ukuran, `camera.aspect` diperbarui lalu `updateProjectionMatrix()`
-(matriks proyeksi dihitung ulang), dan `renderer.setSize()`. Pixel ratio dibatasi maksimal 2 agar
-layar high-DPI tidak merender 9× pixel.
-
-### 4. Keputusan & asumsi Milestone 1
-- Urutan panel di console sengaja diacak (kiri→kanan: SECURITY, POWER, NETWORK) agar pemain harus
-  membaca hint urutan. Bisa diubah lewat `slot` di `PANEL_DEFS` (room.js).
-- Teks di layar dalam ruangan memakai bahasa Inggris (gaya sci-fi); HUD nanti berbahasa Indonesia.
-- `THREE.Clock` sudah deprecated (r183), diganti `THREE.Timer`. `PCFSoftShadowMap` deprecated (r186),
-  dipakai `PCFShadowMap`.
-- Animasi (ring, hologram, pintu) & VFX shader dikerjakan di Milestone 2–3; Milestone 1 fokus scene statis.
-
-### 5. Latihan tanya-jawab (persiapan demo)
-- **Kenapa daun pintu dibuat child DoorGroup?** Agar animasi cukup mengubah posisi lokal (x) dan
-  tetap benar walau DoorGroup dipindah/diputar. Transform world dihitung otomatis dari parent.
-- **Beda metalness dan roughness?** Metalness = jenis material (logam vs non-logam), roughness =
-  kehalusan mikro-permukaan (tajam vs buram pantulannya).
-- **Kenapa hanya satu light yang cast shadow?** Tiap light ber-shadow butuh render pass tambahan ke
-  shadow map; PointLight bahkan 6 pass (cube map). Satu DirectionalLight cukup untuk bayangan utama.
-- **Apa fungsi PMREMGenerator?** Mem-prefilter environment map menjadi beberapa tingkat blur supaya
-  pantulan material kasar terlihat buram dan material licin terlihat tajam.
-- **Kenapa emissive tidak menerangi object di sekitarnya?** Emissive hanya menambah warna pada
-  permukaannya sendiri; penerangan ke object lain butuh light (PointLight) atau post-processing (bloom).
+### Environment, fog, tone mapping
+- **Environment map** memberi pantulan pada material logam: HDR bila ada, bila tidak `RoomEnvironment`.
+  **PMREMGenerator** membuat versi ber-blur bertingkat sehingga material kasar memantul buram dan material
+  licin memantul tajam. Intensitasnya ikut redup saat lockdown.
+- **FogExp2** (density 0,028): kabut tipis yang memberi kesan kedalaman.
+- **ACES Filmic tone mapping** memetakan nilai cahaya terang (>1) ke rentang layar. Texture warna diberi
+  `SRGBColorSpace`, sedangkan normal/roughness map tetap linear karena berisi data, bukan warna.
 
 ---
 
-## Milestone 2 — Core Interaction
+## 9. Kamera
 
-### 1. Arsitektur: siapa bicara dengan siapa
+### OrbitControls (mode bebas)
+Kamera mengorbit titik `target` di pusat ruangan dalam koordinat spherical. Batasnya dihitung dari ukuran
+ruangan agar kamera tidak menembus dinding, lantai, atau ceiling:
+- Jarak 2,5–7,5 m; sudut vertikal 60°–87°; sudut horizontal ±63°; pan dimatikan (target terkunci).
+- `enableDamping`: gerakan melambat halus, sehingga `controls.update()` dipanggil tiap frame.
 
-```
-  klik / hover / keyboard
-          │
-   interaction.js ── Raycaster ──> target {type, id}
-          │
-       main.js  (orkestrator: memutuskan aksi untuk tiap target)
-          │
-   state.js  mission.activate(id) / openDoor() / reset()
-          │   memancarkan event: activated · rejected · already-active · ready · locked · complete · reset · change
-          ▼
-   ┌──────────────┬────────────────┬──────────────────┐
- animation.js    ui.js             camera rig (animation.js)
- (visual scene)  (HUD, toast)      (focus panel / hologram / pintu)
-```
+### Camera rig (mode sinematik)
+- **Intro**: setelah klik MULAI, kamera meluncur dari sudut kiri atas ke posisi awal; timer misi dimulai
+  setelah intro selesai.
+- **Fokus panel**: saat panel diklik, kamera terbang ke depan panel, berhenti ±1 detik, lalu kembali.
+  Posisinya dihitung dari **world transform** panel: posisi panel + normal panel × 1,7 m. Hasilnya kamera
+  selalu tepat menghadap panel walau panel diputar dan dimiringkan oleh parent-nya.
+- **Fokus hologram**: kamera mendekat ke hologram dan panel info muncul; klik lagi atau Esc untuk kembali.
+- **Fokus pintu**: saat misi selesai, kamera menghadap pintu yang terbuka.
+- Saat mode sinematik, OrbitControls dimatikan agar batas-batasnya tidak menarik kamera; pose orbit
+  terakhir disimpan untuk kembali.
 
-Prinsip penting: **state.js tidak tahu apa pun tentang Three.js maupun HTML.** Ia hanya menyimpan
-aturan misi. Visual dan HUD *bereaksi* terhadap event. Keuntungannya: aturan misi mudah dibaca dan
-diuji, dan tampilan bisa diubah tanpa menyentuh logika.
-
-### 2. Penjelasan per file
-
-| File | Isi utama |
-|---|---|
-| `src/state.js` | `createMission()`: data `active[]`, `errors`, `doorOpen`, waktu. Fungsi `activate(id)`, `openDoor()`, `reset()`, `start()`, `snapshot()`, `on(event, fn)`. Konstanta `SEQUENCE` (urutan benar) dan `PHASE` (LOCKDOWN → READY → COMPLETE). |
-| `src/interaction.js` | `createInteraction()`: Raycaster, konversi kursor → NDC, membedakan klik vs drag, satu raycast hover per frame, cursor pointer, keyboard (R, Esc). |
-| `src/animation.js` | Mesin **tween** (`tween`, `delay`, `cancelTween`, `updateTweens`), fungsi **easing**, **camera rig** (`playIntro`, `focus`, `release`, `goHome`), fungsi pose focus (panel/hologram/pintu), dan **animator** yang menerjemahkan state misi menjadi visual. |
-| `src/effects.js` | + `createWarningLightEffect()`: denyut lambat saat lockdown, kedip cepat saat alarm. |
-| `src/ui.js` | HUD: `renderMission`, `setTime`, `showTooltip`, `showToast`, `flashAlarm`, `showHoloInfo`, `showComplete`, dll. |
-| `src/main.js` | Menghubungkan semua modul: event misi → animator/HUD/kamera; target interaktif; render loop. |
-| `src/room.js` | + `panel.station`, hit-box hologram (`HoloHitProxy`), `drawScreen` mendukung warna status terpisah. |
-
-### 3. State machine misi
-
-```
-            activate(urutan benar)            activate(ke-3 benar)        openDoor()
- LOCKDOWN ─────────────────────────> LOCKDOWN ───────────────────> READY ───────────> COMPLETE
- (0 aktif)                           (1-2 aktif)                   (3 aktif)          (pintu terbuka)
-    ▲                                    │
-    └──── activate(urutan salah): errors+1, semua sistem kembali standby ────┘
- reset(): dari fase mana pun kembali ke LOCKDOWN, errors = 0, waktu dihitung ulang
-```
-
-- Sistem berikutnya yang benar = `SEQUENCE[active.length]`. Jadi "urutan" cukup dicek dengan
-  membandingkan id yang diklik dengan elemen urutan pada indeks jumlah sistem yang sudah aktif.
-- Klik panel yang sudah aktif → `already-active` (bukan kesalahan).
-- Final Terminal sebelum READY → `locked` (bukan kesalahan, hanya pesan).
-- `snapshot()` mengembalikan salinan data, sehingga modul lain tidak bisa mengubah state secara langsung.
-
-### 4. Raycasting (konsep inti interaksi)
-
-1. **Koordinat kursor → NDC** (Normalized Device Coordinates):
-   `x = (clientX / lebar) * 2 − 1`, `y = −(clientY / tinggi) * 2 + 1` → rentang −1..1 (y dibalik karena
-   di layar y bertambah ke bawah, di NDC ke atas).
-2. `raycaster.setFromCamera(ndc, camera)` membuat **sinar** dari posisi kamera melewati titik itu
-   (memakai inverse projection matrix kamera).
-3. `raycaster.intersectObjects(meshes)` menguji perpotongan sinar dengan segitiga mesh
-   (diawali uji cepat bounding sphere). Hasil diurutkan dari yang **terdekat**.
-4. Mesh menyimpan `userData.target`, sehingga dari mesh yang terkena kita tahu panel/objek mana yang dipilih.
-
-Optimasi sesuai syarat:
-- Raycast **hanya** terhadap daftar mesh interaktif (station panel, Final Terminal, hit-box hologram),
-  bukan seluruh scene.
-- Event `pointermove` hanya **menyimpan** posisi kursor; raycast hover dilakukan **sekali per frame** di
-  render loop (event pointermove bisa terjadi berkali-kali dalam satu frame).
-- **Hit-box tak terlihat**: hologram tipis & transparan sulit diklik, jadi dibuat bola `visible = false`.
-  Object tak terlihat tidak dirender, tetapi Raycaster tetap mengujinya.
-- **Klik vs drag**: OrbitControls juga memakai drag mouse kiri. Klik dianggap valid bila kursor bergeser
-  < 6 px dan ditekan < 500 ms, agar memutar kamera tidak ikut mengaktifkan panel.
-
-### 5. Animasi
-
-| Animasi | Teknik |
-|---|---|
-| Tombol panel tertekan | tween 0.35 s, `y = restY − 0.035·sin(πt)` (turun lalu naik) |
-| Daun pintu geser | progres 0→1 dengan kecepatan konstan (2.4 s), dibentuk easing `inOutCubic`, lalu `x = lerp(closedX, openX, e)`; reset menutup kembali |
-| Ring reactor berputar | `rotation.y += kecepatan · dt`; kecepatan naik saat POWER aktif |
-| Hologram berputar + bobbing | `rotation.y += …·dt`, `y = base + 0.06·sin(1.6t)`; jauh lebih cepat saat difokus |
-| Warning light | lockdown: sinus lambat; alarm salah urutan: gelombang kotak cepat (`sin(28t) > 0`) |
-| Camera focus / intro / reset | tween posisi & titik pandang dengan `lerpVectors` + easing |
-
-**Delta time (`dt`)**: semua gerakan dikalikan `dt` (detik sejak frame sebelumnya) supaya kecepatannya
-sama di 30 FPS maupun 144 FPS. `dt` dibatasi maksimal 0.1 s agar tidak "loncat" saat lag.
-
-**Tween & easing**: tween menghitung progres `t = elapsed / duration` (0..1). Easing mengubah `t`
-menjadi kurva yang lebih natural; misalnya `inOutCubic` pelan di awal, cepat di tengah, pelan di akhir.
-Interpolasi linear: `lerp(a, b, t) = a + (b − a)·t`.
-
-**Animator berbasis level**: setiap sistem punya nilai `level` 0..1 yang bergerak halus menuju
-`goal` (0 atau 1) dengan *exponential smoothing*:
-`level = lerp(level, goal, 1 − e^(−rate·dt))`. Rumus ini tidak bergantung frame rate. Semua visual
-dihitung dari level:
-- **POWER** → kecepatan ring, intensitas core & MachineLight, lampu ceiling, KeyLight, HemiLight
-  (ruangan terang setelah power pulih).
-- **NETWORK** → hologram dari berkedip lemah menjadi stabil, HologramLight menyala.
-- **SECURITY** → warning light berhenti berdenyut (lockdown dicabut).
-- **READY / OPEN** → warna lockLight & strip pintu merah → amber → hijau; pad Final Terminal berdenyut.
-
-Reset cukup mengembalikan semua goal ke 0, dan visual kembali dengan mulus.
-
-### 6. Camera rig
-
-- **Mode orbit**: OrbitControls aktif dengan batas dari Milestone 1.
-- **Mode cinematic**: kamera digerakkan tween. OrbitControls **dimatikan** dan `controls.update()`
-  tidak dipanggil, karena batas polar/azimuth/jarak akan "menarik" kamera keluar dari pose focus.
-  Kamera diarahkan dengan `camera.lookAt(target)`.
-- `focus()` menyimpan pose orbit terakhir (`returnPose`); `release()` terbang kembali ke pose itu.
-- **Pose focus panel** dihitung dari world transform: posisi world panel + normal panel
-  (sumbu +Y lokal yang diputar dengan world quaternion panel) × 1.7 m. Hasilnya kamera tepat menghadap
-  permukaan panel walaupun panel diputar & dimiringkan oleh parent-nya. Ini contoh langsung kegunaan
-  scene graph.
-- Intro: kamera meluncur dari sudut kiri-atas ke posisi home; timer misi mulai setelah intro selesai.
-
-### 7. Cara uji manual Milestone 2
-1. Tunggu intro selesai. HUD menampilkan "Sistem berikutnya: POWER", ruangan masih redup, alarm berdenyut.
-2. Hover panel → tooltip + highlight. Hover hologram/Final Terminal → tooltip.
-3. Klik **NETWORK** dulu (salah) → ACCESS DENIED di layar panel, warning light berkedip cepat, vignette
-   merah, toast error, ERROR = 1.
-4. Klik POWER → NETWORK → SECURITY. Setiap aktivasi: kamera fokus ke panel, tombol tertekan, layar ONLINE.
-   Setelah POWER: lampu terang & ring cepat. Setelah NETWORK: hologram stabil. Setelah SECURITY: alarm padam.
-5. Klik POWER lagi saat sudah aktif → toast "sudah aktif" (tidak menambah ERROR).
-6. Klik hologram → kamera fokus + panel info status. Klik lagi / Esc → kembali.
-7. Klik Final Terminal → kamera ke pintu, pintu terbuka, overlay MISSION COMPLETE (waktu + kesalahan).
-8. Tekan R / tombol RESET → semua kembali ke kondisi awal, kamera ke home.
-
-### 8. Keputusan & asumsi Milestone 2
-- "Inspect panel" = hover tooltip (nama & status) + kamera fokus singkat ke panel saat diklik
-  (otomatis kembali setelah ~1 s).
-- Seluruh station (meja + panel) menjadi area klik panel, agar mudah diklik.
-- HUD sudah berfungsi penuh untuk kebutuhan misi; polish visual & toggle (bloom, dsb.) di Milestone 4.
-- Server rack prop dipindah ke kiri pintu (simetris dengan Final Terminal) agar tidak menumpuk dengan
-  hologram dari sudut pandang awal.
-
-### 9. Latihan tanya-jawab (Milestone 2)
-- **Bagaimana sistem tahu urutannya salah?** `expected = SEQUENCE[active.length]`; jika id yang diklik
-  ≠ expected → ditolak, `errors++`, `active = []`.
-- **Kenapa raycast hover tidak dilakukan di event pointermove?** Event bisa terjadi berkali-kali per frame;
-  cukup simpan posisi kursor lalu raycast sekali per frame.
-- **Kenapa OrbitControls dimatikan saat camera focus?** Batas sudut/jarak OrbitControls dihitung terhadap
-  target orbit; pose focus berada di luar batas itu sehingga kamera akan ditarik kembali.
-- **Kenapa animasi dikalikan delta time?** Agar kecepatan animasi dalam satuan per-detik, bukan per-frame.
-- **Apa itu NDC?** Koordinat layar ternormalisasi −1..1 yang dipakai Raycaster untuk membuat sinar dari kamera.
+### Resize
+Saat jendela berubah ukuran: `camera.aspect` diperbarui, `updateProjectionMatrix()`, `renderer.setSize()`.
+Pixel ratio dibatasi maksimal 2.
 
 ---
 
-## Milestone 3 — Visual Integration
+## 10. Interaksi & raycasting
 
-### 1. Ringkasan perubahan
+1. Posisi kursor diubah ke **NDC** (−1..1): `x = (clientX / lebar)·2 − 1`, `y = −(clientY / tinggi)·2 + 1`.
+2. `raycaster.setFromCamera(ndc, camera)` membuat **sinar** dari kamera melewati titik kursor.
+3. `raycaster.intersectObjects(meshes)` mencari mesh yang terkena, diurutkan dari yang terdekat.
+4. Setiap mesh menyimpan `userData.target`, jadi ketahuan panel/objek mana yang dipilih.
 
-| File | Perubahan |
+Desain yang dipakai:
+- Raycast **hanya** ke daftar object interaktif: 3 station panel, Final Terminal, hit-box hologram.
+- `pointermove` hanya menyimpan posisi kursor; raycast hover dilakukan **sekali per frame**.
+- **Hit-box hologram**: bola tak terlihat (`visible = false`) karena hologram tipis sulit diklik.
+  Object tak terlihat tidak dirender tetapi tetap bisa terkena raycast.
+- **Klik vs drag**: klik hanya dihitung bila kursor bergeser < 6 px dan ditekan < 500 ms, supaya memutar
+  kamera tidak ikut mengaktifkan panel.
+- Target yang aktif bergantung kondisi: tidak ada saat briefing/intro atau setelah selesai; saat fokus
+  hologram hanya hologram yang bisa diklik.
+
+| Aksi | Hasil |
 |---|---|
-| `src/effects.js` | Shader hologram & beam (`createHologramMaterial`, `createBeamMaterial`), `createHologramEffect` (pasang shader + fallback), `updatePanelGlow` (emissive pulse), `createSparkSystem` (partikel `THREE.Points` + pooling), `createWarningLightEffect`. |
-| `src/animation.js` | Animator memakai VFX di atas: flash + spark saat aktivasi, spark merah saat ditolak, spark hijau saat pintu terbuka, pulse panel aktif, environment & ring ikut level POWER, idle robot (AnimationMixer bila GLB punya animasi, selain itu gerakan menoleh prosedural). |
-| `src/room.js` | Texture prosedural kini juga punya **normal map** (dihitung dari height map); fallback nilai roughness bila texture user tidak punya roughness map. |
-| `src/scene.js` | `shadow.radius` (bayangan lebih lembut), `updateProjectionMatrix()` shadow camera, `createDebugHelpers()` (tombol **H**). |
-| `src/main.js` | `renderer.debug.onShaderError` → fallback hologram otomatis; tombol H. |
-
-### 2. Shader hologram (ShaderMaterial custom)
-
-Shader = program kecil yang berjalan di GPU.
-- **Vertex shader**: dijalankan per vertex. Menghitung posisi layar
-  (`projectionMatrix * viewMatrix * modelMatrix * position`) dan mengirim data ke fragment shader lewat
-  `varying`: normal di view space, posisi di view space, dan tinggi world (`vWorldY`).
-- **Fragment shader**: dijalankan per pixel. Menghitung warna & alpha:
-  - **Fresnel**: `pow(1 − |dot(N, V)|, p)`. N = normal, V = arah ke kamera. Di tengah object N ≈ V
-    (hasil ≈ 0), di tepi N ⟂ V (hasil ≈ 1) → tepi bercahaya seperti hologram/kaca.
-  - **Scanline**: `step(0.5, fract(vWorldY * density − time * 0.8))` → garis-garis horizontal yang bergerak.
-    Memakai tinggi **world** sehingga garis tetap horizontal walau model berputar.
-  - **Sweep**: `smoothstep(0.9, 1.0, fract(...))` → pita terang yang menyapu ke atas.
-  - **Flicker**: angka pseudo-acak `hash(floor(time * 20))` berganti 20× per detik; kekuatannya
-    (`uFlicker`) = 1 − level NETWORK, jadi hologram berkedip saat jaringan offline dan stabil saat online.
-- **Uniform**: variabel dari JavaScript ke shader (`uTime`, `uOpacity`, `uFlicker`, `uColor`, …) yang
-  di-update setiap frame tanpa compile ulang.
-- Pengaturan material: `transparent: true`, `blending: AdditiveBlending` (warna dijumlahkan → bercahaya),
-  `depthWrite: false` (tidak menutupi object di belakangnya), `side: DoubleSide`.
-- `#include <tonemapping_fragment>` & `#include <colorspace_fragment>`: chunk bawaan Three.js agar output
-  shader custom ikut tone mapping & dikonversi ke sRGB seperti material lain.
-- **Beam proyektor**: shader kedua yang memudarkan alpha berdasarkan `uv.y` silinder (terang di bawah,
-  hilang di atas) + garis vertikal halus.
-
-**Fallback**: `renderer.debug.onShaderError` dipanggil Three.js bila shader gagal di-compile. Handler kita
-memanggil `hologramEffect.useFallback()` yang mengganti material ke `MeshBasicMaterial` additive (dari
-Milestone 1). Sudah diuji dengan menyuntikkan shader rusak: hologram otomatis beralih ke fallback.
-
-### 3. Emissive pulse panel
-`updatePanelGlow()` dipanggil setiap frame:
-- Panel **aktif**: tombol & indicator berdenyut `0.5 + 0.5·sin(3t + phase)`; `phase` berbeda tiap panel
-  agar tidak berdenyut serempak.
-- **Flash** aktivasi: nilai 1 → 0 dalam ~0.6 s, menambah emissive tombol, base, dan layar (kilatan).
-- **Ditolak**: indicator berkedip cepat (`sin(30t) > 0`).
-- **Hover**: base & layar sedikit lebih terang.
-
-### 4. Spark particles (THREE.Points + pooling)
-- `THREE.Points` menggambar setiap vertex sebagai sprite persegi; texture radial gradient membuatnya bulat lembut.
-- **Pool**: 240 partikel dibuat sekali (Float32Array posisi, warna, kecepatan, umur). `burst()` memakai
-  slot berikutnya secara bergiliran (*ring buffer*); bila penuh, partikel tertua dipakai ulang.
-  Tidak ada object/geometry baru saat runtime → tanpa alokasi memori & garbage collection.
-- Simulasi per partikel: gravitasi (`v.y += g·dt`), hambatan udara (`v *= e^(−k·dt)`), posisi
-  (`p += v·dt`), memantul pelan di lantai.
-- **Fade out**: warna dikalikan `life / maxLife`. Karena blending additive, warna hitam = tak terlihat,
-  jadi partikel mati cukup diberi warna 0.
-- `DynamicDrawUsage` + `needsUpdate = true` → buffer di-upload ulang ke GPU hanya saat ada partikel hidup.
-- `frustumCulled = false` karena bounding sphere geometry tidak dihitung ulang setiap frame.
-
-### 5. PBR: normal map prosedural
-- **Normal map** menyimpan arah normal permukaan per pixel (RGB = XYZ). Shader memakai normal ini
-  untuk perhitungan cahaya, sehingga permukaan datar tampak punya alur, bevel, dan baut tanpa menambah polygon.
-- Cara membuatnya (`heightToNormalMap`): dari height map (sambungan rendah, panel tinggi, baut menonjol),
-  kemiringan dihitung dengan beda hingga: `dx = h(x+1) − h(x−1)`, `dy = h(y+1) − h(y−1)`,
-  `normal = normalize(−dx·s, dy·s, 1)`, lalu dikodekan `(n·0.5 + 0.5)·255`.
-- Kombinasi material lantai/dinding sekarang: `map` (warna) + `roughnessMap` (sambungan kasar,
-  panel lebih licin) + `normalMap` (bevel) + `metalness` tinggi + environment map → pantulan logam
-  yang berbeda di setiap bagian panel.
-
-### 6. Lighting & shadow
-- POWER mengubah `KeyLight`, `HemiLight`, lampu ceiling, `MachineLight`, dan `scene.environmentIntensity`
-  → transisi dari ruangan gelap lockdown ke ruangan terang.
-- `shadow.radius = 3`: PCF mengambil beberapa sampel di sekitar texel shadow map → tepi bayangan lembut.
-- `shadow.camera.updateProjectionMatrix()` wajib dipanggil setelah mengubah left/right/top/bottom.
-- **Tombol H**: menampilkan frustum shadow camera (garis oranye, `depthTest = false` agar terlihat
-  menembus dinding), arah KeyLight, dan posisi PointLight. Berguna untuk menjelaskan shadow saat demo.
-
-### 7. Animasi GLB (robot)
-Bila `robot.glb` punya animasi, `THREE.AnimationMixer` memutar clip bernama "idle" (atau clip pertama)
-dan di-update dengan `mixer.update(dt)`. Bila tidak ada, robot menoleh pelan secara prosedural.
-
-### 8. Performa (diukur di Milestone 3)
-- ±214 draw call, ±29k segitiga, 16 program shader.
-- 1 light dengan shadow; 5 PointLight tanpa shadow; maksimal 240 partikel (1 draw call).
-- Raycast hanya ke target interaktif, sekali per frame.
-
-### 9. Cara uji manual Milestone 3
-1. Lihat hologram dari dekat (klik hologram): garis scanline bergerak, tepi lebih terang (fresnel),
-   pita terang menyapu. Saat NETWORK offline hologram berkedip; setelah online stabil.
-2. Aktifkan panel: tombol berkilat dan percikan berwarna sistem keluar; panel aktif berdenyut.
-3. Salah urutan: percikan merah + indicator berkedip cepat + warning light alarm.
-4. Buka pintu: percikan hijau dari lockLight.
-5. Putar kamera ke dinding/lantai: bevel & baut panel menangkap cahaya (normal map).
-6. Tekan **H**: helper shadow camera & light tampil; tekan lagi untuk menyembunyikan.
-
-### 10. Latihan tanya-jawab (Milestone 3)
-- **Apa beda vertex shader dan fragment shader?** Vertex: per titik sudut, menghitung posisi di layar.
-  Fragment: per pixel, menghitung warna.
-- **Apa itu uniform dan varying?** Uniform: nilai sama untuk semua vertex/pixel, dikirim dari JS.
-  Varying: nilai dari vertex shader yang diinterpolasi ke setiap pixel.
-- **Kenapa depthWrite false pada hologram?** Object transparan tidak boleh menulis depth agar object di
-  belakangnya (dan bagian hologram lain) tetap tergambar.
-- **Kenapa partikel memakai pooling?** Membuat & menghapus object tiap burst memicu alokasi memori dan
-  garbage collection yang bisa membuat frame patah-patah.
-- **Apa fungsi normal map?** Mengubah arah normal per pixel sehingga cahaya bereaksi seolah permukaan
-  punya detail relief, tanpa menambah geometri.
+| Hover panel / hologram / terminal | Highlight + tooltip nama & status, cursor pointer |
+| Klik panel | Tombol tertekan, kamera fokus, aktivasi (atau ditolak) |
+| Klik hologram | Fokus kamera + info status fasilitas |
+| Klik Final Terminal | Buka pintu (bila READY) atau pesan terkunci |
+| Keyboard | Enter (mulai), R (reset), Esc (kembali), M (suara), P (performa), H (helper) |
 
 ---
 
-## Milestone 4 — Polish
+## 11. State machine misi (`state.js`)
 
-### 1. Ringkasan perubahan
-
-| File | Perubahan |
-|---|---|
-| `public/models/robot.glb` | Robot GLB hasil optimasi (lihat bagian 2). File asli di `assets-source/Robot.original.glb`. |
-| `index.html`, `src/ui.js`, `src/style.css` | Layar **briefing** (objective, aturan, kontrol, tombol MULAI), panel misi bisa diciutkan, panel performa, catatan rekor di overlay selesai. |
-| `src/main.js` | Alur loading → briefing → intro → misi; tombol P; waktu terbaik di `localStorage`. |
-| `src/scene.js` | `createPerfMonitor()` (FPS + `renderer.info` + dynamic resolution), `setPixelRatioCap()`. |
-| `src/animation.js` | `rig.hold()` — kamera diam di pose awal selama briefing. |
-| `src/room.js` | 12 pilar → satu `InstancedMesh`; posisi & ukuran robot disesuaikan. |
-| `src/assets.js` | 18 LED server rack fallback → dua `InstancedMesh` dengan warna per-instance. |
-
-### 2. Optimasi asset GLB (robot)
-Hasil inspeksi file asli: 50k segitiga (wajar), tetapi **3 texture PNG 4096×4096** (normal, base color,
-metallic-roughness) → file 48 MB dan ±270 MB memori GPU.
-
-- Memori GPU texture ≈ lebar × tinggi × 4 byte (RGBA) × 1.33 (mipmap). 4096² → ±89 MB per texture.
-  1024² → ±5.6 MB per texture. Ukuran file JPEG/PNG tidak menentukan memori GPU; texture selalu
-  di-decode menjadi pixel mentah sebelum di-upload ke GPU.
-- Robot tingginya 1,25 m dan di layar paling besar ±200–300 px, jadi texture 1024 sudah lebih dari cukup
-  (lebih tinggi dari jumlah pixel yang tampil).
-- Langkah (memakai tool `gltf-transform`, bukan dependency project):
-  `gltf-transform resize --width 1024 --height 1024` lalu `gltf-transform jpeg --formats png --quality 88`.
-  Hasil: **48,4 MB → 2,4 MB**, validator glTF tanpa error. Geometri tidak diubah.
-- Nama file disesuaikan menjadi huruf kecil `robot.glb`: server Linux (hosting) membedakan huruf besar/kecil.
-- Model tidak punya animasi, sehingga robot memakai idle prosedural (menoleh pelan).
-
-### 3. InstancedMesh (instancing)
-Setiap `Mesh` biasa = minimal satu **draw call** (perintah gambar CPU → GPU). Object identik yang banyak
-(pilar, LED) lebih efisien digambar dengan `InstancedMesh`: satu geometry + satu material + daftar
-**matriks transform per instance** → GPU menggambar semuanya dalam **satu draw call**.
-- `setMatrixAt(i, matrix)` mengisi transform instance ke-i (dibuat dengan `Object3D` dummy:
-  atur position/rotation → `updateMatrix()`).
-- `setColorAt(i, color)` memberi warna berbeda per instance (dipakai LED cyan/amber).
-- `computeBoundingSphere()` agar frustum culling memperhitungkan semua instance.
-- Hasil: draw call 214 → 157 (termasuk shadow pass).
-
-### 4. Monitor performa & dynamic resolution
-- **FPS** = jumlah frame / waktu, dihitung tiap 0.5 s dari delta asli (bukan delta yang dibatasi 0.1 s).
-- `renderer.info.render.calls` (draw call) dan `.triangles` di-reset otomatis setiap `render()`, jadi
-  dibaca setelah render. `renderer.info.memory` = jumlah geometry & texture di GPU.
-- **Dynamic resolution**: bila rata-rata FPS < 40 selama 3 detik dan pixel ratio > 1, batas pixel ratio
-  diturunkan ke 1. Pada layar 2× ini mengurangi jumlah pixel yang dirender hingga 4×. Hanya terjadi sekali,
-  dicatat dengan `console.info` dan toast.
-
-Angka saat ini (1280×720): ±157 draw call, ±127k segitiga (robot 50k digambar 2× karena render utama +
-shadow pass), 20 program shader, 19 texture.
-
-### 5. Alur aplikasi final
 ```
-Loading (LoadingManager) → Briefing (kamera diam: rig.hold) → [MULAI/Enter] → Intro dolly
-→ Orbit + misi (timer berjalan) → Mission Complete (overlay) → [R] → kembali ke kondisi awal
+            activate (urutan benar)          activate (ke-3 benar)       openDoor()
+ LOCKDOWN ────────────────────────> LOCKDOWN ─────────────────> READY ───────────> COMPLETE
+ (0 aktif)                          (1–2 aktif)                 (3 aktif)          (pintu terbuka)
+    ▲                                   │
+    └── activate (urutan salah): errors + 1, semua sistem kembali standby ──┘
+ reset(): dari fase mana pun kembali ke LOCKDOWN, errors = 0, waktu diulang
 ```
-- Selama briefing hanya tombol Enter yang aktif; klik objek dinonaktifkan sampai intro selesai.
-- Waktu terbaik disimpan di `localStorage` (dibungkus try/catch karena bisa diblokir di mode privat).
 
-### 6. Cara uji manual Milestone 4
-1. Muat halaman: loading → layar briefing merah "LOCKDOWN ALERT". Tekan Enter/MULAI → intro kamera.
-2. Klik tombol − di panel misi → panel menciut (progress/hint tetap tampil). Klik + untuk membuka.
-3. Tekan **P** → panel performa (FPS, draw call, segitiga, dll.). Di laptop normal FPS seharusnya ±60.
-4. Selesaikan misi → overlay menampilkan waktu, kesalahan, dan "Rekor waktu baru!" / waktu terbaik.
-   Selesaikan sekali lagi untuk melihat perbandingan dengan rekor.
-5. Lihat robot GLB di kiri depan: texture, normal map, dan bayangannya.
-6. Buka DevTools → Console: hanya satu `console.info` daftar asset fallback.
-
-### 7. Latihan tanya-jawab (Milestone 4)
-- **Apa itu draw call dan kenapa perlu dikurangi?** Perintah CPU ke GPU untuk menggambar satu mesh;
-  tiap draw call punya overhead CPU (ganti state, uniform). Terlalu banyak → CPU menjadi bottleneck.
-- **Kenapa texture 4096 diturunkan ke 1024?** Memori GPU ∝ jumlah pixel texture (16× lebih kecil), dan
-  pada ukuran robot di layar detail 4096 tidak terlihat.
-- **Apa beda InstancedMesh dengan clone mesh biasa?** Clone = banyak object & draw call;
-  InstancedMesh = satu object, satu draw call, transform berbeda per instance.
-- **Kenapa pixel ratio dibatasi?** Pada layar high-DPI (2×–3×) jumlah pixel bisa 4–9× lipat; fragment
-  shader dijalankan per pixel sehingga beban GPU naik drastis.
+- Urutan benar disimpan di `SEQUENCE = ['power', 'network', 'security']`.
+- Sistem yang diharapkan berikutnya = `SEQUENCE[active.length]`. Bila id yang diklik berbeda → ditolak.
+- Klik panel yang sudah aktif → hanya pesan "sudah aktif" (bukan kesalahan).
+- Klik Final Terminal sebelum READY → pesan terkunci (bukan kesalahan).
+- `snapshot()` memberi salinan data agar modul lain tidak bisa mengubah state langsung.
+- Waktu dihitung dari mulai misi sampai pintu terbuka; waktu terbaik disimpan di `localStorage`.
 
 ---
 
-## Tambahan — Audio (musik latar)
+## 12. Animasi
 
-File: `src/audio.js`, musik `public/audio/bgm-magical-technology.mp3` (Pixabay Content License, lihat README).
+### Teknik dasar
+- **Delta time**: `posisi += kecepatan × dt` → kecepatan dalam satuan per detik.
+- **Tween**: progres `t = waktu berjalan / durasi` (0..1), lalu `lerp(a, b, t) = a + (b − a)·t`.
+- **Easing**: membentuk kurva gerak, mis. `inOutCubic` (pelan–cepat–pelan) untuk pintu dan kamera.
+- **Animator berbasis level**: setiap sistem punya nilai **level 0..1** yang bergerak halus menuju target
+  dengan *exponential smoothing* `level = lerp(level, target, 1 − e^(−rate·dt))`. Semua visual dihitung
+  dari level, sehingga transisi selalu mulus dan reset cukup mengembalikan target ke 0.
 
-### Alur sinyal (Web Audio API lewat Three.js)
+### Daftar animasi
+| Animasi | Cara kerja |
+|---|---|
+| Tombol panel tertekan | `y = posisiAwal − 0,035·sin(πt)` selama 0,35 s (turun lalu naik) |
+| Pintu geser | Progres 0→1 dalam 2,4 s + easing; `x = lerp(tertutup, terbuka, e)`; reset menutup kembali |
+| Ring reactor | `rotation += kecepatan·dt`; kecepatan naik saat POWER aktif |
+| Hologram | Berputar + naik-turun `0,06·sin(1,6t)`; jauh lebih cepat saat difokus |
+| Warning light | Denyut sinus lambat saat lockdown; kedip cepat saat alarm salah urutan |
+| Robot | Menoleh pelan (prosedural, karena GLB tidak punya animasi; bila ada dipakai `AnimationMixer`) |
+| Kamera | Intro, fokus panel/hologram/pintu, kembali ke posisi awal saat reset |
+| Lampu & warna | Intensitas cahaya, warna lockLight (merah → amber → hijau), pad terminal berdenyut |
+
+---
+
+## 13. VFX (efek visual)
+
+### a. Shader hologram (`ShaderMaterial` buatan sendiri)
+- **Vertex shader** (per titik): menghitung posisi layar dan mengirim normal, posisi, dan tinggi world ke
+  fragment shader lewat `varying`.
+- **Fragment shader** (per pixel):
+  - **Fresnel** `pow(1 − |dot(N, V)|, p)`: tepi object lebih terang dari bagian tengah.
+  - **Scanline**: garis horizontal bergerak, dihitung dari tinggi **world** agar tetap horizontal walau
+    model berputar.
+  - **Sweep**: pita terang yang menyapu ke atas.
+  - **Flicker**: kedip acak; kekuatannya = 1 − level NETWORK (berkedip saat offline, stabil saat online).
+- **Uniform** (`uTime`, `uOpacity`, `uFlicker`, `uColor`) diubah dari JavaScript setiap frame.
+- `AdditiveBlending` (warna dijumlahkan → bercahaya), `transparent: true`, `depthWrite: false`.
+- Beam proyektor memakai shader kedua yang memudar ke atas.
+- **Fallback**: bila shader gagal di-compile, `renderer.debug.onShaderError` mengganti material hologram ke
+  `MeshBasicMaterial` additive sehingga aplikasi tetap berjalan (sudah diuji dengan shader yang sengaja dirusak).
+
+### b. Emissive pulse panel
+Panel aktif: tombol & indicator berdenyut sinus (fase berbeda tiap panel). Saat aktivasi ada **kilatan**
+yang meluruh dalam ±0,6 s. Panel yang ditolak: indicator berkedip cepat. Hover: panel sedikit lebih terang.
+
+### c. Partikel percikan (`THREE.Points`)
+- Percikan warna sistem saat aktivasi, merah saat ditolak, hijau saat pintu terbuka.
+- **Pooling**: 240 partikel dibuat sekali di awal; setiap ledakan memakai slot berikutnya secara bergiliran
+  (*ring buffer*). Tidak ada object baru saat berjalan → tidak ada garbage collection yang bikin patah-patah.
+- Simulasi sederhana: gravitasi, hambatan udara, memantul di lantai, memudar sesuai umur.
+- Texture titik bulat lembut dibuat dengan gradient Canvas.
+
+### d. Warning light
+Mengatur emissive lampu dan 2 PointLight merah sekaligus: denyut lambat selama lockdown, kedip cepat saat
+alarm, padam setelah SECURITY aktif. Ditambah vignette merah di layar (CSS) saat urutan salah.
+
+---
+
+## 14. HUD & UI
+
+| Elemen | Fungsi |
+|---|---|
+| Loading screen | Progress bar dari `LoadingManager` |
+| Briefing | Cerita, objective, aturan urutan, kontrol, tombol MULAI |
+| Panel misi | Objective per langkah (OFFLINE / NEXT / ONLINE, pintu LOCKED / READY / OPEN), progress bar, jumlah error, timer, hint "sistem berikutnya"; bisa diciutkan |
+| Tooltip | Nama & status object yang di-hover |
+| Toast | Pesan singkat: sistem aktif, akses ditolak, terminal terkunci, reset |
+| Info hologram | Status semua sistem + penjelasan protokol |
+| Overlay MISSION COMPLETE | Waktu, jumlah kesalahan, rekor waktu terbaik, tombol reset |
+| Tombol kanan atas | SUARA (M) dan RESET (R) |
+| Panel performa (P) | FPS, draw call, segitiga, memori GPU, resolusi |
+
+HUD berupa HTML + CSS di atas canvas. Container HUD memakai `pointer-events: none` supaya klik tembus ke
+scene 3D, kecuali pada tombol.
+
+---
+
+## 15. Audio
+
+### Musik latar
 ```
-<audio> mp3 (streaming) → THREE.Audio → BiquadFilter (lowpass) → gain (volume) → AudioListener → speaker
+<audio> mp3 (streaming) → THREE.Audio → filter lowpass → volume → AudioListener (di kamera) → speaker
 ```
-- **`THREE.AudioListener`** = "telinga" virtual, dipasang sebagai **child kamera** (contoh lain scene graph).
-  Ia membuat `AudioContext` milik Web Audio API.
-- **`THREE.Audio`** = sumber suara non-posisional (volume sama di mana pun kamera berada; berbeda dengan
-  `PositionalAudio` yang suaranya mengecil sesuai jarak).
-- **`setMediaElementSource(<audio>)`**: musik di-*streaming* oleh elemen `<audio>`, sehingga file 6 MB tidak
-  perlu di-decode seluruhnya ke memori (3 menit stereo PCM ±60 MB) dan tidak memperlambat layar loading.
-- **Lowpass filter**: memotong frekuensi tinggi. Cutoff = `600 · 30^power` Hz → 600 Hz saat lockdown
-  (musik terdengar teredam, seperti dari balik dinding) hingga 18 kHz saat POWER aktif (jernih).
-  Skala eksponensial dipakai karena persepsi frekuensi manusia bersifat logaritmik.
-- **Volume** diubah dengan `gain.setTargetAtTime(...)` → fade halus, tidak ada bunyi "klik".
-
-### Kebijakan autoplay browser
-Browser melarang suara (dan bahkan pembuatan `AudioContext`) sebelum pengguna berinteraksi. Karena itu
-`audio.start()` dipanggil di dalam handler klik/Enter tombol **MULAI**, sehingga musik langsung diputar tanpa
-warning di Console. Tombol **M** / tombol MUSIK mematikan suara (preferensi disimpan di `localStorage`),
-dan musik dijeda otomatis saat tab browser disembunyikan.
+- `THREE.AudioListener` ditempel ke kamera; `THREE.Audio` sebagai sumber suara non-posisional.
+- Musik di-*streaming* (tidak di-decode seluruhnya ke memori) sehingga tidak menahan layar loading.
+- **Filter lowpass** mengikuti level POWER: 600 Hz saat lockdown (teredam) sampai 18 kHz (jernih).
+- Browser melarang suara sebelum ada interaksi pengguna, sehingga audio baru dimulai saat tombol MULAI
+  ditekan. Tanpa warning di Console.
 
 ### Efek suara sintetis (tanpa file)
-Semua efek suara (SFX) dibangkitkan langsung oleh kode, sehingga tidak perlu file audio maupun lisensi.
-- **Oscillator** menghasilkan gelombang dasar dengan frekuensi tertentu: `sine` (lembut), `triangle`
-  (seperti chime), `square` (tajam/digital), `sawtooth` (kasar/buzzer).
-- **Envelope** (`GainNode`): volume naik cepat (*attack*), lalu meluruh eksponensial. Tanpa envelope nada
-  akan berbunyi "klik" di awal & akhir.
-- **Pitch sweep**: `frequency.exponentialRampToValueAtTime(...)` menggeser nada (mis. whoosh naik/turun,
-  dentum pintu 90 → 40 Hz).
-- **Noise**: buffer 1 detik berisi angka acak (noise putih) + filter *bandpass* yang frekuensinya bergeser
-  → bunyi desis hidrolik pintu.
-- **Musik vs nada**: chime aktivasi = arpeggio rasio 1 : 1.25 : 1.5 : 2 (nada dasar, terts besar, kuint,
-  oktaf) dengan nada dasar berbeda per sistem (POWER 392 Hz, NETWORK 523 Hz, SECURITY 659 Hz). Buzzer error =
-  dua sawtooth 110 Hz & 116 Hz; selisih 6 Hz menimbulkan efek "bergetar" (*beating*).
-- Semua SFX lewat satu `sfxBus` (gain) → AudioListener, jadi tombol **M** mematikan musik & efek sekaligus.
-- Node oscillator dibuat baru setiap bunyi lalu `stop()`; browser membuangnya otomatis setelah selesai.
+Dibuat langsung oleh kode dengan Web Audio API:
+- **Oscillator** menghasilkan gelombang `sine` / `triangle` / `square` / `sawtooth`.
+- **Envelope** (GainNode): volume naik cepat lalu meluruh, supaya tidak terdengar "klik".
+- **Noise** putih + filter bandpass yang bergeser untuk desis hidrolik pintu.
 
-| Kejadian | Fungsi |
+| Kejadian | Suara |
 |---|---|
-| Klik panel | `sfx.click()` |
-| Sistem aktif | `sfx.activate(id)` |
-| Urutan salah | `sfx.denied()` |
-| 3 sistem aktif | `sfx.ready()` |
-| Terminal terkunci | `sfx.locked()` |
-| Pintu terbuka | `sfx.door()` |
-| Mission Complete | `sfx.complete()` |
-| Fokus/kembali hologram | `sfx.whoosh(true/false)` |
-| Reset | `sfx.reset()` |
+| Klik panel | Klik pendek |
+| Sistem aktif | Chime naik; nada dasar berbeda per sistem (POWER rendah → SECURITY tinggi) |
+| Urutan salah | Buzzer 2× (dua gelombang sawtooth 110 & 116 Hz → efek bergetar) |
+| 3 sistem aktif | Akor "sistem siap" |
+| Terminal terkunci | Beep rendah 2× |
+| Pintu terbuka | Dentum + desis hidrolik |
+| Mission Complete | Fanfare singkat |
+| Fokus / kembali hologram | Sapuan naik / turun |
+| Reset | Blip turun |
 
-### Latihan tanya-jawab
-- **Bagaimana efek suara dibuat tanpa file?** Dengan OscillatorNode (gelombang sine/square/sawtooth) dan
-  noise buffer, dibentuk oleh envelope GainNode dan filter, semuanya dari Web Audio API.
-- **Kenapa AudioListener ditempel ke kamera?** Listener mewakili posisi pendengar; untuk audio posisional,
-  arah & jarak suara dihitung relatif terhadap listener, jadi ia harus mengikuti kamera.
-- **Kenapa musik tidak langsung diputar saat halaman terbuka?** Kebijakan autoplay; suara hanya boleh dimulai
-  setelah ada interaksi pengguna (klik MULAI).
+Tombol **M** mematikan musik & efek sekaligus (diingat lewat `localStorage`). Musik dijeda saat tab
+disembunyikan.
+
+---
+
+## 16. Performa
+
+| Teknik | Manfaat |
+|---|---|
+| Hanya 1 light yang cast shadow | Setiap light ber-shadow butuh render tambahan (PointLight bahkan 6×) |
+| `InstancedMesh` untuk 12 pilar | 12 draw call → 1 (satu geometry, transform berbeda per instance) |
+| Pooling partikel (maks 240) | Tanpa alokasi memori saat berjalan; 1 draw call |
+| Raycast terbatas, sekali per frame | Hemat CPU |
+| Texture robot 4096 → 1024 | Memori GPU ±270 MB → ±17 MB |
+| Pixel ratio maks 2 | Layar high-DPI tidak merender 9× pixel |
+| Dynamic resolution | Bila FPS < 40 selama 3 detik, pixel ratio diturunkan ke 1 secara otomatis |
+| Compile shader sebelum frame pertama | Tidak patah-patah saat mulai |
+
+Angka saat ini (3 GLB terpasang, 1280×720): ±200 draw call dan ±187 ribu segitiga per frame (termasuk
+shadow pass). Bisa dipantau langsung dengan tombol **P**.
+
+---
+
+## 17. Alat bantu demo
+
+| Alat | Cara | Untuk menjelaskan |
+|---|---|---|
+| Panel performa | Tombol **P** | FPS, draw call, segitiga, memori GPU |
+| Debug helper | Tombol **H** | Kotak frustum shadow camera (oranye), arah KeyLight, posisi PointLight |
+| Scene graph | DevTools Console saat `npm run dev`: `__controlRoom.printSceneGraph()` | Hierarki parent–child |
+
+---
+
+## 18. Kendala teknis & solusinya
+
+| Kendala | Solusi |
+|---|---|
+| Asset belum tersedia membuat error 404 di Console | Plugin `asset-manifest` + fallback prosedural |
+| GLB dari internet berskala/pivot sembarang | `fitModel()` berbasis bounding box |
+| GLB robot 48 MB (texture 4K) | Resize 1024 + JPEG → 2,4 MB |
+| API Three.js berubah (warning deprecated) | `HDRLoader`, `THREE.Timer`, `PCFShadowMap`, `renderer.compile()` |
+| Kamera menembus dinding | Batas OrbitControls dihitung dari ukuran ruangan dan diuji di posisi ekstrem |
+| Drag kamera ikut terhitung klik | Batas gerak 6 px & waktu 500 ms |
+| Fokus kamera dilawan batas OrbitControls | OrbitControls dimatikan saat mode sinematik |
+| Hologram sulit diklik | Hit-box bola tak terlihat |
+| Shader bisa gagal di GPU tertentu | Fallback otomatis lewat `onShaderError` |
+| Helper shadow tertutup dinding | `depthTest = false` pada helper |
+| Browser memblokir suara otomatis | Audio dimulai saat tombol MULAI ditekan |
+
+---
+
+## 19. Skenario demo (urutan yang disarankan)
+
+1. **Buka halaman**: tunjukkan loading lalu briefing. Jelaskan cerita dan objective.
+2. **Klik MULAI**: intro kamera, musik teredam. Jelaskan suasana lockdown (lampu redup, alarm, hologram kedip).
+3. **Orbit & hover**: tunjukkan batas kamera, tooltip, highlight. Sebut Raycaster.
+4. **Klik NETWORK dulu (sengaja salah)**: ACCESS DENIED, alarm, percikan merah, buzzer, ERROR = 1.
+   Jelaskan state machine.
+5. **POWER → NETWORK → SECURITY**: tunjukkan kamera fokus, percikan, chime, dan perubahan ruangan
+   (lampu menyala, reactor cepat, hologram stabil, alarm padam).
+6. **Klik hologram**: jelaskan shader (fresnel, scanline, flicker) dan info status. Esc untuk kembali.
+7. **Tekan H**: jelaskan shadow map & shadow camera, lalu PBR (pantulan lantai/ring, normal map dinding).
+8. **Klik Final Terminal**: pintu terbuka (parent–child), overlay MISSION COMPLETE.
+9. **Tekan R**: reset. **Tekan P**: tunjukkan performa.
+10. Bila ditanya scene graph: `__controlRoom.printSceneGraph()` di Console (mode dev).
+
+---
+
+## 20. Latihan tanya-jawab
+
+**Scene & scene graph**
+- *Apa itu scene graph?* Struktur pohon object; transform child relatif terhadap parent, dan world
+  transform = matriks parent × matriks lokal.
+- *Kenapa daun pintu dibuat child DoorGroup?* Animasi cukup mengubah posisi lokal x; tetap benar walau
+  DoorGroup dipindah atau diputar.
+
+**Material & cahaya**
+- *Beda metalness dan roughness?* Metalness = logam atau bukan; roughness = halus/kasarnya permukaan
+  (pantulan tajam atau buram).
+- *Apa fungsi normal map?* Mengubah arah normal per pixel sehingga cahaya bereaksi seolah ada relief,
+  tanpa menambah geometri.
+- *Kenapa emissive tidak menerangi object lain?* Emissive hanya menambah warna permukaannya sendiri; untuk
+  menerangi sekitar dibutuhkan light.
+- *Bagaimana shadow map bekerja?* Scene digambar dari sudut light ke texture kedalaman; pixel yang lebih
+  jauh dari light daripada nilai di shadow map berada dalam bayangan.
+- *Kenapa hanya satu light ber-shadow?* Setiap light ber-shadow menambah render pass; satu sudah cukup.
+- *Apa fungsi PMREMGenerator?* Membuat environment map ber-blur bertingkat untuk berbagai roughness.
+
+**Interaksi & logika**
+- *Bagaimana raycasting bekerja?* Kursor → NDC → sinar dari kamera → cek perpotongan dengan mesh → ambil
+  yang terdekat.
+- *Kenapa raycast tidak di setiap pointermove?* Event bisa terjadi berkali-kali per frame; cukup sekali per frame.
+- *Bagaimana sistem tahu urutan salah?* Membandingkan id yang diklik dengan `SEQUENCE[active.length]`.
+- *Kenapa state.js dipisah dari Three.js?* Logika mudah dibaca dan diuji; tampilan bisa diubah tanpa
+  menyentuh aturan misi.
+
+**Animasi & kamera**
+- *Kenapa dikalikan delta time?* Agar kecepatan per detik, bukan per frame.
+- *Apa itu easing?* Kurva yang mengubah progres linear menjadi gerak natural (pelan–cepat–pelan).
+- *Kenapa OrbitControls dimatikan saat fokus?* Batasnya akan menarik kamera keluar dari pose fokus.
+
+**Shader & VFX**
+- *Beda vertex dan fragment shader?* Vertex per titik (posisi); fragment per pixel (warna).
+- *Uniform vs varying?* Uniform: nilai dari JavaScript, sama untuk semua pixel. Varying: nilai dari vertex
+  shader yang diinterpolasi ke setiap pixel.
+- *Kenapa hologram `depthWrite: false`?* Object transparan tidak boleh menutupi object di belakangnya.
+- *Kenapa partikel memakai pooling?* Menghindari pembuatan/penghapusan object yang memicu garbage collection.
+
+**Performa & asset**
+- *Apa itu draw call?* Perintah CPU ke GPU untuk menggambar satu mesh; terlalu banyak membebani CPU.
+- *Beda InstancedMesh dan clone?* Clone = banyak draw call; InstancedMesh = satu draw call dengan transform
+  berbeda per instance.
+- *Kenapa texture robot diperkecil?* Memori GPU sebanding jumlah pixel texture; detail 4K tidak terlihat
+  pada ukuran robot di layar.
+
+**Audio**
+- *Bagaimana efek suara dibuat tanpa file?* Oscillator dan noise dari Web Audio API, dibentuk oleh
+  envelope dan filter.
+- *Kenapa musik tidak langsung berbunyi saat halaman dibuka?* Kebijakan autoplay browser: suara hanya
+  boleh dimulai setelah interaksi pengguna.
