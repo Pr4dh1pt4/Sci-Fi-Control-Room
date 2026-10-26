@@ -1,14 +1,14 @@
 ﻿# Sci-Fi Control Room
 
-Project ETS Grafika Komputer (EF234504) — Teknik Informatika ITS.
+Project ETS Grafika Komputer.
 **Interactive 3D Application** berbasis browser menggunakan **Three.js** (r186) + **Vite**, tanpa framework lain.
 
 ## Anggota
 
 | Nama | NRP |
 |---|---|
-| _Nama Anggota 1_ | _NRP_ |
-| _Nama Anggota 2_ | _NRP_ |
+| Agil Lukman Hakim | 5025241037 |
+| Pradhipta Raja Mahendra | 5025241055 |
 
 ## Deskripsi
 
@@ -78,9 +78,9 @@ Semua asset dimuat lokal dari folder `public/` (tidak ada request ke CDN saat ru
 | Asset | File | Pembuat | Sumber (URL) | Lisensi | Modifikasi |
 |---|---|---|---|---|---|
 | Robot | `public/models/robot.glb` | _isi_ | _isi_ | _isi_ | Texture di-resize 4096→1024 px dan dikonversi PNG→JPEG (gltf-transform) untuk performa; geometri tidak diubah. File asli disimpan di `assets-source/` (tidak ikut repo). |
-| Terminal / server rack | `public/models/terminal.glb` | _belum dipakai — fallback prosedural_ | https://pixabay.com/id/3d-models/data-terminal-futuristik-kios-3797/ | | |
-| Model hologram | `public/models/hologram.glb` | _belum dipakai — fallback prosedural_ | | | |
-| HDRI environment | `public/environments/control_room.hdr` | _belum dipakai — RoomEnvironment_ | https://sketchfab.com/3d-models/low-poly-planet-ac9420fefb84451eb17b34c513cfe8db | | |
+| Terminal / server rack | `public/models/terminal.glb` | lazarosv | https://pixabay.com/id/3d-models/data-terminal-futuristik-kios-3797/ | | |
+| Model hologram | `public/models/hologram.glb` | ScanLife | ttps://sketchfab.com/3d-models/low-poly-planet-ac9420fefb84451eb17b34c513cfe8db | | |
+| HDRI environment | `public/environments/control_room.hdr` | _belum dipakai — RoomEnvironment_ | | | |
 
 Asset prosedural buatan sendiri (tanpa file eksternal): texture & normal map panel lantai/dinding, hazard stripe,
 layar panel (Canvas 2D), texture partikel, model fallback server rack & hologram, seluruh geometri ruangan.
