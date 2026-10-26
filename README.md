@@ -151,5 +151,5 @@ GLB sebaiknya tidak dikompres Draco/Meshopt dan texture-nya maksimal 1024–2048
 
 | Anggota | Kontribusi |
 |---|---|
-| _Nama Anggota 1_ | _isi (mis. scene & room, PBR/lighting/shadow, asset)_ |
-| _Nama Anggota 2_ | _isi (mis. state machine, interaction, animation, VFX, HUD)_ |
+| Pradhipta Raja Mahendra | 	Konsep misi & desain scene graph; ruangan & layout (room.js); renderer, kamera, lighting, shadow, environment (scene.js); shader hologram & VFX (effects.js); animasi & camera rig (animation.js); raycasting (interaction.js); integrasi (main.js) |
+| Agil Lukman Hakim | State machine misi (state.js); HUD, briefing, overlay (ui.js, style.css); pencarian, optimasi & lisensi asset (Asset Credits); pengujian & checklist akhir; README & CATATAN_PEMAHAMAN.md |
