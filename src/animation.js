@@ -288,6 +288,7 @@ export function createAnimator(stage, room) {
 
   return {
     hologramEffect: holoFx,
+    levels: level, // hanya untuk dibaca modul lain (mis. audio mengikuti level POWER)
 
     /** Menyesuaikan target visual dengan snapshot state misi. */
     applyMission(snap) {

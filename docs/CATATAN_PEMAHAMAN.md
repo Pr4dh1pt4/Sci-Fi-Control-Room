@@ -538,3 +538,66 @@ Loading (LoadingManager) → Briefing (kamera diam: rig.hold) → [MULAI/Enter] 
   InstancedMesh = satu object, satu draw call, transform berbeda per instance.
 - **Kenapa pixel ratio dibatasi?** Pada layar high-DPI (2×–3×) jumlah pixel bisa 4–9× lipat; fragment
   shader dijalankan per pixel sehingga beban GPU naik drastis.
+
+---
+
+## Tambahan — Audio (musik latar)
+
+File: `src/audio.js`, musik `public/audio/bgm-magical-technology.mp3` (Pixabay Content License, lihat README).
+
+### Alur sinyal (Web Audio API lewat Three.js)
+```
+<audio> mp3 (streaming) → THREE.Audio → BiquadFilter (lowpass) → gain (volume) → AudioListener → speaker
+```
+- **`THREE.AudioListener`** = "telinga" virtual, dipasang sebagai **child kamera** (contoh lain scene graph).
+  Ia membuat `AudioContext` milik Web Audio API.
+- **`THREE.Audio`** = sumber suara non-posisional (volume sama di mana pun kamera berada; berbeda dengan
+  `PositionalAudio` yang suaranya mengecil sesuai jarak).
+- **`setMediaElementSource(<audio>)`**: musik di-*streaming* oleh elemen `<audio>`, sehingga file 6 MB tidak
+  perlu di-decode seluruhnya ke memori (3 menit stereo PCM ±60 MB) dan tidak memperlambat layar loading.
+- **Lowpass filter**: memotong frekuensi tinggi. Cutoff = `600 · 30^power` Hz → 600 Hz saat lockdown
+  (musik terdengar teredam, seperti dari balik dinding) hingga 18 kHz saat POWER aktif (jernih).
+  Skala eksponensial dipakai karena persepsi frekuensi manusia bersifat logaritmik.
+- **Volume** diubah dengan `gain.setTargetAtTime(...)` → fade halus, tidak ada bunyi "klik".
+
+### Kebijakan autoplay browser
+Browser melarang suara (dan bahkan pembuatan `AudioContext`) sebelum pengguna berinteraksi. Karena itu
+`audio.start()` dipanggil di dalam handler klik/Enter tombol **MULAI**, sehingga musik langsung diputar tanpa
+warning di Console. Tombol **M** / tombol MUSIK mematikan suara (preferensi disimpan di `localStorage`),
+dan musik dijeda otomatis saat tab browser disembunyikan.
+
+### Efek suara sintetis (tanpa file)
+Semua efek suara (SFX) dibangkitkan langsung oleh kode, sehingga tidak perlu file audio maupun lisensi.
+- **Oscillator** menghasilkan gelombang dasar dengan frekuensi tertentu: `sine` (lembut), `triangle`
+  (seperti chime), `square` (tajam/digital), `sawtooth` (kasar/buzzer).
+- **Envelope** (`GainNode`): volume naik cepat (*attack*), lalu meluruh eksponensial. Tanpa envelope nada
+  akan berbunyi "klik" di awal & akhir.
+- **Pitch sweep**: `frequency.exponentialRampToValueAtTime(...)` menggeser nada (mis. whoosh naik/turun,
+  dentum pintu 90 → 40 Hz).
+- **Noise**: buffer 1 detik berisi angka acak (noise putih) + filter *bandpass* yang frekuensinya bergeser
+  → bunyi desis hidrolik pintu.
+- **Musik vs nada**: chime aktivasi = arpeggio rasio 1 : 1.25 : 1.5 : 2 (nada dasar, terts besar, kuint,
+  oktaf) dengan nada dasar berbeda per sistem (POWER 392 Hz, NETWORK 523 Hz, SECURITY 659 Hz). Buzzer error =
+  dua sawtooth 110 Hz & 116 Hz; selisih 6 Hz menimbulkan efek "bergetar" (*beating*).
+- Semua SFX lewat satu `sfxBus` (gain) → AudioListener, jadi tombol **M** mematikan musik & efek sekaligus.
+- Node oscillator dibuat baru setiap bunyi lalu `stop()`; browser membuangnya otomatis setelah selesai.
+
+| Kejadian | Fungsi |
+|---|---|
+| Klik panel | `sfx.click()` |
+| Sistem aktif | `sfx.activate(id)` |
+| Urutan salah | `sfx.denied()` |
+| 3 sistem aktif | `sfx.ready()` |
+| Terminal terkunci | `sfx.locked()` |
+| Pintu terbuka | `sfx.door()` |
+| Mission Complete | `sfx.complete()` |
+| Fokus/kembali hologram | `sfx.whoosh(true/false)` |
+| Reset | `sfx.reset()` |
+
+### Latihan tanya-jawab
+- **Bagaimana efek suara dibuat tanpa file?** Dengan OscillatorNode (gelombang sine/square/sawtooth) dan
+  noise buffer, dibentuk oleh envelope GainNode dan filter, semuanya dari Web Audio API.
+- **Kenapa AudioListener ditempel ke kamera?** Listener mewakili posisi pendengar; untuk audio posisional,
+  arah & jarak suara dihitung relatif terhadap listener, jadi ia harus mengikuti kamera.
+- **Kenapa musik tidak langsung diputar saat halaman terbuka?** Kebijakan autoplay; suara hanya boleh dimulai
+  setelah ada interaksi pengguna (klik MULAI).

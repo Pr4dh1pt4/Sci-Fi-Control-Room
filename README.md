@@ -50,6 +50,7 @@ Explore → Inspect Panel → Activate System → Trigger Animation/VFX → Comp
 | Klik Final Terminal | Membuka pintu utama (setelah 3 sistem aktif) |
 | Esc | Kembali dari fokus hologram |
 | R / tombol RESET | Reset misi |
+| M / tombol SUARA | Suara on/off (musik latar & efek suara) |
 | P | Panel performa (FPS, draw call, segitiga, memori GPU) |
 | H | Debug helper (frustum shadow camera, arah KeyLight, posisi PointLight) |
 | Tombol − / + di panel misi | Ciutkan / buka panel misi |
@@ -59,7 +60,7 @@ Explore → Inspect Panel → Activate System → Trigger Animation/VFX → Comp
 | Fitur | Implementasi |
 |---|---|
 | **Scene graph** | `Scene → ControlRoom → Floor, Walls, ConsoleGroup (Station → Desk + Panel → Base/Screen/Button/Indicator), DoorGroup (DoorFrame, leftLeaf, rightLeaf, LockLight, Corridor, FinalTerminal), MachineGroup (RingPivot → RingTilt → Ring), HologramGroup (HoloPivot → HoloModel + HoloRing), PropsGroup (Robot, ServerTerminal, Crates)`, plus `Lights` dan `Camera`. Animasi memakai transform lokal child (daun pintu, ring, hologram). |
-| **Asset GLB** | Robot (`public/models/robot.glb`) via `GLTFLoader`; ukuran & posisi dinormalisasi otomatis dengan bounding box (`fitModel`). Slot GLB lain (terminal, hologram) memakai fallback prosedural bila file belum ada. |
+| **Asset GLB** | Tiga model via `GLTFLoader`: robot, komputer terminal, dan planet low-poly (ditampilkan sebagai hologram dengan shader custom). Ukuran & posisi dinormalisasi otomatis dengan bounding box (`fitModel`); setiap slot punya fallback prosedural bila file tidak ada. |
 | **PBR** | `MeshStandardMaterial` dengan metalness/roughness bermakna (lantai logam 0.75, dinding 0.55, krom 0.95/0.22, cat 0.35/0.5); color + roughness + normal map prosedural (normal map dihitung dari height map); `MeshPhysicalMaterial` + clearcoat untuk kaca reactor; material PBR bawaan GLB robot. |
 | **Emissive** | Layar panel (CanvasTexture sebagai emissiveMap), tombol, indicator, lockLight, warning light, strip lampu, core reactor, Final Terminal. |
 | **Lighting** | HemisphereLight, DirectionalLight (KeyLight, satu-satunya yang cast shadow), 5 PointLight berwarna (cyan reactor/hologram, biru console, merah warning). Intensitas berubah sesuai state (lockdown gelap → power pulih terang). |
@@ -69,6 +70,7 @@ Explore → Inspect Panel → Activate System → Trigger Animation/VFX → Comp
 | **Raycasting** | `THREE.Raycaster` untuk hover & klik pada daftar target interaktif saja (station panel, hit-box hologram tak terlihat, Final Terminal), satu raycast hover per frame; klik dibedakan dari drag orbit. |
 | **VFX** | (a) Hologram `ShaderMaterial` custom: fresnel + scanline + sweep + flicker, additive, `depthWrite: false`, dengan fallback otomatis via `renderer.debug.onShaderError`; beam proyektor shader. (b) Emissive pulse & flash panel. (c) Spark particles `THREE.Points` dengan pooling (maks 240). (d) Warning light animasi (lockdown & alarm). |
 | **HUD/UI** | Briefing, objective list per langkah, progress bar, hint urutan, error count, timer, tooltip, toast, info hologram, overlay MISSION COMPLETE (waktu, kesalahan, rekor), tombol reset, panel performa, loading screen (`LoadingManager`). |
+| **Audio** | Musik latar via `THREE.AudioListener` (child kamera) + `THREE.Audio` dengan sumber `<audio>` streaming; `BiquadFilter` lowpass membuat musik teredam saat lockdown dan jernih saat POWER aktif; mulai setelah klik MULAI (kebijakan autoplay browser). **Efek suara sintetis** (oscillator + noise + envelope, tanpa file) untuk klik panel, aktivasi per sistem (nada berbeda), buzzer urutan salah, sistem siap, terminal terkunci, pintu hidrolik, fanfare selesai, fokus hologram, dan reset. Tombol mute (M) untuk semua suara, tersimpan di `localStorage`. |
 | **Camera** | OrbitControls dengan damping & batas (jarak 2.5–7.5, polar 60°–87°, azimuth ±63°, pan dimatikan); camera rig untuk intro & focus; resize handler; pixel ratio maks 2 dengan penurunan otomatis ke 1 bila FPS < 40. |
 
 ## Asset Credits
@@ -77,9 +79,10 @@ Semua asset dimuat lokal dari folder `public/` (tidak ada request ke CDN saat ru
 
 | Asset | File | Pembuat | Sumber (URL) | Lisensi | Modifikasi |
 |---|---|---|---|---|---|
-| Robot | `public/models/robot.glb` | PixelLabs | https://pixabay.com/id/3d-models/glb-robot-robot-lucu-robot-kartun-3347/ | _isi_ | Texture di-resize 4096→1024 px dan dikonversi PNG→JPEG (gltf-transform) untuk performa; geometri tidak diubah. File asli disimpan di `assets-source/` (tidak ikut repo). |
-| Terminal / server rack | `public/models/terminal.glb` | lazarosv | https://pixabay.com/id/3d-models/data-terminal-futuristik-kios-3797/ | | |
-| Model hologram | `public/models/hologram.glb` | ScanLife | https://sketchfab.com/3d-models/low-poly-planet-ac9420fefb84451eb17b34c513cfe8db | | |
+| Glb Robot Lucu (robot) | `public/models/robot.glb` | PixelLabs | https://pixabay.com/id/3d-models/glb-robot-robot-lucu-robot-kartun-3347/ | [Pixabay Content License](https://pixabay.com/service/terms/) | Texture di-resize 4096→1024 px dan dikonversi PNG→JPEG (gltf-transform) untuk performa; geometri tidak diubah. File asli disimpan di `assets-source/` (tidak ikut repo). |
+| Data Terminal Futuristik (terminal) | `public/models/terminal.glb` | lazarosv | https://pixabay.com/id/3d-models/data-terminal-futuristik-kios-3797/ | [Pixabay Content License](https://pixabay.com/service/terms/) | Tidak diubah; ukuran & posisi dinormalisasi otomatis saat runtime. |
+| Low Poly Planet (model hologram) | `public/models/hologram.glb` | ScanLife ([sketchfab.com/ahmetguner](https://sketchfab.com/ahmetguner); di metadata file tercatat sebagai AhmetGuner3d) | https://sketchfab.com/3d-models/low-poly-planet-ac9420fefb84451eb17b34c513cfe8db | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | Material asli diganti shader hologram buatan sendiri saat runtime; ukuran dinormalisasi otomatis. |
+| Magical Technology Sci-Fi Science Futuristic Game Music (musik latar) | `public/audio/bgm-magical-technology.mp3` | Denis-Pavlov-Music | https://pixabay.com/music/id-300607/ | [Pixabay Content License](https://pixabay.com/service/terms/) | Nama file diganti; diputar loop dengan lowpass filter & pengaturan volume dari kode. |
 | HDRI environment | `public/environments/control_room.hdr` | _belum dipakai — RoomEnvironment_ | | | |
 
 Asset prosedural buatan sendiri (tanpa file eksternal): texture & normal map panel lantai/dinding, hazard stripe,
@@ -92,10 +95,10 @@ Font memakai font sistem (Consolas / Courier New), tidak ada file font eksternal
 ├── index.html               # canvas + markup HUD/briefing/overlay
 ├── vite.config.js           # konfigurasi Vite + plugin asset-manifest
 ├── public/
-│   ├── models/              # GLB (robot.glb)
+│   ├── models/              # GLB (robot.glb, terminal.glb, hologram.glb)
 │   ├── textures/            # texture opsional (floor_*, wall_*)
 │   ├── environments/        # HDR opsional
-│   └── audio/
+│   └── audio/               # musik latar (bgm-magical-technology.mp3)
 ├── assets-source/           # file asset asli sebelum dioptimasi (di-.gitignore)
 ├── src/
 │   ├── main.js              # bootstrap, wiring modul, render loop
@@ -107,6 +110,7 @@ Font memakai font sistem (Consolas / Courier New), tidak ada file font eksternal
 │   ├── animation.js         # tween, easing, camera rig, animator berbasis state
 │   ├── effects.js           # shader hologram, spark particles, emissive pulse, warning light
 │   ├── ui.js                # HUD, briefing, tooltip, toast, overlay, panel performa
+│   ├── audio.js             # musik latar + efek suara sintetis (AudioListener, filter, mute)
 │   └── style.css
 └── docs/CATATAN_PEMAHAMAN.md  # penjelasan kode & konsep grafika per milestone
 ```
@@ -143,9 +147,13 @@ GLB sebaiknya tidak dikompres Draco/Meshopt dan texture-nya maksimal 1024–2048
   dari nilai level 0..1 yang dihaluskan eksponensial, sehingga reset berjalan mulus.
 - **Fallback shader**: bila shader hologram gagal di-compile, material otomatis beralih ke versi additive biasa
   (diuji dengan shader yang sengaja dirusak).
-- **Performa**: 12 pilar & 18 LED memakai `InstancedMesh` (draw call 214 → 157); partikel memakai pooling;
-  hanya satu light ber-shadow; raycast terbatas; dynamic resolution bila FPS rendah.
+- **Performa**: 12 pilar memakai `InstancedMesh` (12 draw call → 1; LED server rack fallback juga di-instance);
+  partikel memakai pooling; hanya satu light ber-shadow; raycast terbatas; dynamic resolution bila FPS rendah.
+  Dengan ketiga GLB terpasang: ±200 draw call dan ±187k segitiga per frame (termasuk shadow pass), dapat dipantau
+  lewat tombol P.
 - **Helper shadow camera tidak terlihat**: frustum lebih besar dari ruangan; diselesaikan dengan `depthTest = false`.
+- **Kebijakan autoplay browser**: suara dan `AudioContext` baru dibuat saat pemain menekan MULAI, sehingga
+  musik bisa diputar tanpa warning di Console; musik di-streaming (tidak di-decode seluruhnya ke memori).
 
 ## Pembagian Kontribusi
 

@@ -24,14 +24,22 @@ export function showFatalError(message) {
 }
 
 // ---------- HUD ----------
-export function initHud({ onReset, onStart }) {
+export function initHud({ onReset, onStart, onToggleMute }) {
   $('reset-button').addEventListener('click', onReset);
+  $('mute-button').addEventListener('click', onToggleMute);
   $('overlay-reset').addEventListener('click', onReset);
   $('start-button').addEventListener('click', onStart);
   $('mission-collapse').addEventListener('click', () => {
     const collapsed = $('mission-panel').classList.toggle('is-collapsed');
     $('mission-collapse').textContent = collapsed ? '+' : '−';
   });
+}
+
+// ---------- Tombol musik ----------
+export function setMuteButton({ available, muted }) {
+  const button = $('mute-button');
+  button.hidden = !available;
+  button.textContent = `♪ SUARA: ${muted ? 'OFF' : 'ON'} [M]`;
 }
 
 // ---------- Briefing ----------

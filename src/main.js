@@ -17,6 +17,7 @@ import {
   hologramFocusPose,
   doorFocusPose,
 } from './animation.js';
+import { createAudio } from './audio.js';
 import * as ui from './ui.js';
 
 const INTRO_START = {
@@ -58,6 +59,7 @@ async function init() {
   const mission = createMission();
   const animator = createAnimator(stage, room);
   const rig = createCameraRig(camera, controls, CAMERA_HOME);
+  const audio = createAudio(camera);
   let started = false; // sudah menekan MULAI di layar briefing
   let introDone = false;
 
@@ -74,6 +76,7 @@ async function init() {
 
   mission.on('activated', ({ id }) => {
     animator.activatePanel(id);
+    audio.sfx.activate(id);
     const messages = {
       power: 'POWER ONLINE — reactor & lampu fasilitas menyala',
       network: 'NETWORK ONLINE — sinyal hologram stabil',
@@ -85,6 +88,7 @@ async function init() {
   mission.on('rejected', ({ id, expected }) => {
     animator.denyPanel(id);
     animator.triggerAlarm();
+    audio.sfx.denied();
     ui.flashAlarm();
     ui.showToast(
       `<b>AKSES DITOLAK</b> — ${SYSTEM_LABELS[id]} di luar urutan (seharusnya ${SYSTEM_LABELS[expected]}). Protokol di-reset.`,
@@ -94,17 +98,31 @@ async function init() {
   });
 
   mission.on('already-active', ({ id }) => ui.showToast(`${SYSTEM_LABELS[id]} sudah aktif.`, 'info'));
-  mission.on('ready', () => ui.showToast('Semua sistem aktif. Final Terminal siap dipakai.', 'success', 3600));
-  mission.on('locked', () => ui.showToast('Final Terminal terkunci — aktifkan POWER, NETWORK, SECURITY dulu.', 'error'));
+  mission.on('ready', () => {
+    audio.sfx.ready();
+    ui.showToast('Semua sistem aktif. Final Terminal siap dipakai.', 'success', 3600);
+  });
+  mission.on('locked', () => {
+    audio.sfx.locked();
+    ui.showToast('Final Terminal terkunci — aktifkan POWER, NETWORK, SECURITY dulu.', 'error');
+  });
 
   mission.on('complete', ({ time, errors }) => {
     ui.hideHoloInfo();
     animator.doorOpened();
+    audio.sfx.door();
     rig.focus('door', doorFocusPose(room.door), { duration: 1.4 });
     const previousBest = readBestTime();
     const isNewBest = previousBest === null || time < previousBest;
     if (isNewBest) saveBestTime(time);
-    delay(3.4, () => ui.showComplete({ time, errors, best: previousBest, isNewBest }), 'show-complete');
+    delay(
+      3.4,
+      () => {
+        audio.sfx.complete();
+        ui.showComplete({ time, errors, best: previousBest, isNewBest });
+      },
+      'show-complete',
+    );
   });
 
   mission.on('reset', () => {
@@ -115,6 +133,7 @@ async function init() {
     ui.hideComplete();
     ui.hideHoloInfo();
     rig.goHome();
+    audio.sfx.reset();
     ui.showToast('Misi di-reset. Mulai lagi dari POWER.', 'info');
   });
 
@@ -132,12 +151,14 @@ async function init() {
 
   function enterHologramFocus() {
     animator.setHoloFocus(true);
+    audio.sfx.whoosh(true);
     ui.showHoloInfo(mission.snapshot());
     rig.focus('hologram', hologramFocusPose(room.hologram), { duration: 1.2 });
   }
 
   function exitHologramFocus() {
     animator.setHoloFocus(false);
+    audio.sfx.whoosh(false);
     ui.hideHoloInfo();
     rig.release({ duration: 1.1 });
   }
@@ -156,6 +177,7 @@ async function init() {
       if (!target) return;
       if (target.type === 'panel') {
         animator.pressButton(target.id);
+        audio.sfx.click();
         // Kamera fokus singkat ke panel agar perubahan layar terlihat, lalu kembali otomatis.
         rig.focus('panel', panelFocusPose(room.panels[target.id]), { duration: 0.8, hold: 1.1 });
         mission.activate(target.id);
@@ -178,6 +200,8 @@ async function init() {
         ui.showToast(`Debug helper ${visible ? 'ON' : 'OFF'} (shadow camera & posisi light)`, 'info');
       } else if (key === 'p') {
         perfVisible = ui.togglePerf();
+      } else if (key === 'm') {
+        toggleMute();
       }
     },
   });
@@ -204,6 +228,7 @@ async function init() {
   function startMission() {
     if (started) return;
     started = true;
+    audio.start(); // dipanggil dari klik/Enter -> diizinkan kebijakan autoplay browser
     ui.hideBriefing();
     ui.showHud();
     rig.playIntro(INTRO_START, {
@@ -214,7 +239,14 @@ async function init() {
     });
   }
 
-  ui.initHud({ onReset: () => mission.reset(), onStart: startMission });
+  function toggleMute() {
+    if (!audio.available) return;
+    audio.toggleMute();
+    ui.setMuteButton(audio);
+  }
+
+  ui.initHud({ onReset: () => mission.reset(), onStart: startMission, onToggleMute: toggleMute });
+  ui.setMuteButton(audio);
 
   // Compile semua shader sebelum frame pertama agar tidak patah-patah saat mulai.
   // (compile sinkron; compileAsync memunculkan warning di GPU tanpa KHR_parallel_shader_compile)
@@ -243,6 +275,7 @@ async function init() {
     else ui.hideTooltip();
 
     animator.update(dt, time);
+    audio.update(animator.levels.power);
     ui.setTime(mission.elapsed());
     renderer.render(scene, camera);
 
@@ -252,7 +285,7 @@ async function init() {
 
   // Mode dev: akses dari DevTools, mis. __controlRoom.printSceneGraph()
   if (import.meta.env.DEV) {
-    window.__controlRoom = { ...stage, room, mission, rig, animator, perf, printSceneGraph: () => printSceneGraph(scene) };
+    window.__controlRoom = { ...stage, room, mission, rig, animator, perf, audio, printSceneGraph: () => printSceneGraph(scene) };
   }
 }
 

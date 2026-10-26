@@ -32,8 +32,17 @@ export const TEXTURE_FILES = {
   },
 };
 
+// Audio tidak di-preload lewat LoadingManager: diputar secara streaming oleh audio.js setelah klik MULAI.
+export const AUDIO_FILES = {
+  bgm: 'audio/bgm-magical-technology.mp3', // musik latar (Pixabay, lihat README)
+};
+
 const available = new Set(availableFiles);
 const toUrl = (file) => import.meta.env.BASE_URL + file;
+
+/** Apakah file ada di public/ (berdasarkan manifest). */
+export const isAvailable = (file) => available.has(file);
+export const assetUrl = toUrl;
 
 /**
  * Memuat semua asset yang tersedia. Asset yang tidak ada / gagal dimuat
@@ -89,6 +98,10 @@ export async function loadAssets(onProgress) {
         (result.textures[setName] ??= {})[slot] = texture;
       });
     }
+  }
+
+  for (const file of Object.values(AUDIO_FILES)) {
+    if (!available.has(file)) missing.push(file);
   }
 
   if (missing.length > 0) {

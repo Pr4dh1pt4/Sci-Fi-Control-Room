@@ -238,10 +238,16 @@ body {
   color: #021018;
 }
 
-.reset-button {
+.hud-actions {
   position: absolute;
   top: 16px;
   right: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+.hud-actions [hidden] {
+  display: none;
 }
 
 /* ---------- Info hologram ---------- */

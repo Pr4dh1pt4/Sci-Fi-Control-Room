@@ -38,6 +38,7 @@
           <span><kbd>Klik</kbd> panel / hologram / terminal</span>
           <span><kbd>Esc</kbd> kembali</span>
           <span><kbd>R</kbd> reset</span>
+          <span><kbd>M</kbd> suara on/off</span>
         </div>
         <button class="hud-button briefing__start" id="start-button" type="button">MULAI MISI [ENTER]</button>
       </div>
@@ -72,7 +73,10 @@
         <div class="mission__order">Urutan: POWER → NETWORK → SECURITY → FINAL TERMINAL</div>
       </section>
 
-      <button class="hud-button reset-button" id="reset-button" type="button">RESET [R]</button>
+      <div class="hud-actions">
+        <button class="hud-button" id="mute-button" type="button" hidden>♪ SUARA: ON [M]</button>
+        <button class="hud-button" id="reset-button" type="button">RESET [R]</button>
+      </div>
 
       <section class="hud-panel holo-info" id="holo-info">
         <div class="mission__tag">HOLOGRAM // FACILITY STATUS</div>
@@ -91,7 +95,7 @@
 
       <div class="hint">
         Drag: orbit &middot; Scroll: zoom &middot; Klik panel: aktivasi &middot; Klik hologram: info &middot; Esc: kembali
-        &middot; R: reset &middot; P: performa &middot; H: helper
+        &middot; R: reset &middot; M: suara &middot; P: performa &middot; H: helper
       </div>
     </div>
 
