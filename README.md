@@ -79,7 +79,7 @@ Semua asset dimuat lokal dari folder `public/` (tidak ada request ke CDN saat ru
 |---|---|---|---|---|---|
 | Robot | `public/models/robot.glb` | _isi_ | _isi_ | _isi_ | Texture di-resize 4096→1024 px dan dikonversi PNG→JPEG (gltf-transform) untuk performa; geometri tidak diubah. File asli disimpan di `assets-source/` (tidak ikut repo). |
 | Terminal / server rack | `public/models/terminal.glb` | lazarosv | https://pixabay.com/id/3d-models/data-terminal-futuristik-kios-3797/ | | |
-| Model hologram | `public/models/hologram.glb` | ScanLife | ttps://sketchfab.com/3d-models/low-poly-planet-ac9420fefb84451eb17b34c513cfe8db | | |
+| Model hologram | `public/models/hologram.glb` | ScanLife | https://sketchfab.com/3d-models/low-poly-planet-ac9420fefb84451eb17b34c513cfe8db | | |
 | HDRI environment | `public/environments/control_room.hdr` | _belum dipakai — RoomEnvironment_ | | | |
 
 Asset prosedural buatan sendiri (tanpa file eksternal): texture & normal map panel lantai/dinding, hazard stripe,
